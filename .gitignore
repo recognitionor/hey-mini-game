@@ -1,0 +1,14 @@
+# Firebase
+.firebase/
+.firebaserc
+
+# Dependencies
+node_modules/
+scripts/
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/

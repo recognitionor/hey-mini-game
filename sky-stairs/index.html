@@ -1,0 +1,1963 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>지옥의계단</title>
+    <style>
+        :root {
+            color-scheme: dark;
+            --panel-bg: rgba(8, 14, 28, 0.82);
+            --panel-border: rgba(255, 255, 255, 0.14);
+            --text-soft: rgba(232, 242, 255, 0.72);
+            --accent: #69e2ff;
+            --accent-2: #8cffb6;
+            --danger: #ff6f91;
+            --warning: #ffd166;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #07111e;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            color: #fff;
+            user-select: none;
+            touch-action: none;
+        }
+
+        body {
+            display: flex;
+            justify-content: center;
+        }
+
+        button,
+        input,
+        textarea {
+            font: inherit;
+        }
+
+        #app {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            overflow: hidden;
+            background:
+                radial-gradient(circle at top, rgba(61, 168, 255, 0.16), transparent 34%),
+                linear-gradient(180deg, #0a1730 0%, #081425 42%, #070d19 100%);
+        }
+
+        #gameCanvas {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        #hud {
+            position: absolute;
+            inset: 0 0 auto 0;
+            padding:
+                calc(env(safe-area-inset-top, 0px) + 14px)
+                16px
+                0
+                16px;
+            z-index: 10;
+            pointer-events: none;
+        }
+
+        .hud-row,
+        .score-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+        }
+
+        .score-row {
+            margin-top: 12px;
+        }
+
+        .pill {
+            padding: 8px 12px;
+            border-radius: 999px;
+            background: rgba(8, 18, 34, 0.58);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            box-shadow: 0 12px 24px rgba(0, 0, 0, 0.18);
+            backdrop-filter: blur(10px);
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+        }
+
+        .label {
+            color: var(--text-soft);
+            font-size: 11px;
+            letter-spacing: 0.16em;
+            margin-bottom: 4px;
+        }
+
+        .score-value {
+            font-size: 42px;
+            font-weight: 900;
+            line-height: 0.9;
+            text-shadow: 0 0 24px rgba(105, 226, 255, 0.32);
+        }
+
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(82px, 1fr));
+            gap: 8px;
+        }
+
+        .mini-stat {
+            min-width: 84px;
+            padding: 10px 12px;
+            border-radius: 18px;
+            background: rgba(7, 15, 28, 0.62);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            text-align: center;
+            backdrop-filter: blur(10px);
+        }
+
+        .mini-stat span {
+            display: block;
+            font-size: 10px;
+            color: var(--text-soft);
+            letter-spacing: 0.12em;
+            margin-bottom: 4px;
+        }
+
+        .mini-stat strong {
+            font-size: 20px;
+            font-weight: 800;
+        }
+
+        .mini-stat.accent strong {
+            color: var(--warning);
+        }
+
+        .time-wrap {
+            margin-top: 14px;
+            padding: 10px 12px;
+            border-radius: 18px;
+            background: rgba(7, 15, 28, 0.58);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(10px);
+        }
+
+        .time-track {
+            height: 14px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.08);
+            overflow: hidden;
+        }
+
+        .time-fill {
+            width: 0%;
+            height: 100%;
+            border-radius: 999px;
+            background: linear-gradient(90deg, #8cffb6 0%, #69e2ff 54%, #2f8fff 100%);
+            box-shadow: 0 0 22px rgba(105, 226, 255, 0.44);
+            transition: width 0.08s linear, filter 0.15s ease;
+        }
+
+        .time-text {
+            margin-top: 8px;
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--text-soft);
+            letter-spacing: 0.1em;
+        }
+
+        .goal-wrap {
+            margin-top: 10px;
+            padding: 10px 12px 12px;
+            border-radius: 18px;
+            background: rgba(7, 15, 28, 0.58);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(10px);
+        }
+
+        .goal-track {
+            height: 12px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.07);
+            overflow: hidden;
+        }
+
+        .goal-fill {
+            width: 0%;
+            height: 100%;
+            border-radius: 999px;
+            background: linear-gradient(90deg, #ffd166 0%, #ff8cc0 48%, #69e2ff 100%);
+            box-shadow: 0 0 18px rgba(255, 209, 102, 0.28);
+            transition: width 0.12s ease;
+        }
+
+        .goal-meta {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            margin-top: 8px;
+            flex-wrap: wrap;
+        }
+
+        .goal-text,
+        .goal-hint {
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+        }
+
+        .goal-text {
+            color: #fff2c7;
+        }
+
+        .goal-hint {
+            color: var(--text-soft);
+        }
+
+        #controls {
+            position: absolute;
+            inset: auto 0 0 0;
+            z-index: 12;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            padding:
+                12px
+                14px
+                calc(env(safe-area-inset-bottom, 0px) + 16px)
+                14px;
+        }
+
+        .control-button {
+            height: 84px;
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            border-radius: 24px;
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.05));
+            color: #fff;
+            font-size: 18px;
+            font-weight: 800;
+            letter-spacing: 0.06em;
+            cursor: pointer;
+            box-shadow: 0 18px 30px rgba(0, 0, 0, 0.24);
+            transition: transform 0.05s ease;
+            touch-action: manipulation;
+        }
+
+        .control-button.left {
+            color: #92d7ff;
+        }
+
+        .control-button.right {
+            color: #b1ffcb;
+        }
+
+        .control-button.active {
+            transform: translateY(2px) scale(0.985);
+            border-color: rgba(255, 255, 255, 0.34);
+            background: linear-gradient(180deg, rgba(105, 226, 255, 0.34), rgba(44, 96, 214, 0.18));
+        }
+
+        .panel {
+            position: absolute;
+            left: 18px;
+            right: 18px;
+            top: 50%;
+            transform: translateY(-50%);
+            z-index: 20;
+            padding: 24px;
+            border-radius: 30px;
+            background: var(--panel-bg);
+            border: 1px solid var(--panel-border);
+            box-shadow: 0 26px 60px rgba(0, 0, 0, 0.34);
+            backdrop-filter: blur(18px);
+            display: none; /* 기본 숨김 */
+        }
+
+        .panel-badge {
+            display: inline-flex;
+            padding: 7px 12px;
+            border-radius: 999px;
+            background: rgba(105, 226, 255, 0.12);
+            border: 1px solid rgba(105, 226, 255, 0.24);
+            color: var(--accent);
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            margin-bottom: 14px;
+        }
+
+        .panel h1,
+        .panel h2 {
+            font-size: 34px;
+            line-height: 1;
+            margin-bottom: 12px;
+        }
+
+        .panel-copy {
+            color: var(--text-soft);
+            font-size: 15px;
+            line-height: 1.55;
+            margin-bottom: 18px;
+        }
+
+        .field {
+            margin-bottom: 14px;
+        }
+
+        .field label {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 13px;
+            color: var(--text-soft);
+            letter-spacing: 0.04em;
+        }
+
+        .field input,
+        .field textarea {
+            width: 100%;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.06);
+            color: #fff;
+            padding: 14px 15px;
+            outline: none;
+        }
+
+        .field textarea {
+            min-height: 84px;
+            resize: none;
+        }
+
+        .field input:focus,
+        .field textarea:focus {
+            border-color: rgba(105, 226, 255, 0.45);
+            box-shadow: 0 0 0 3px rgba(105, 226, 255, 0.14);
+        }
+
+        .instructions {
+            display: grid;
+            gap: 10px;
+            margin: 18px 0 20px;
+            color: var(--text-soft);
+            font-size: 14px;
+        }
+
+        .instructions div {
+            padding: 10px 12px;
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .primary-btn,
+        .secondary-btn,
+        .ghost-btn {
+            width: 100%;
+            min-height: 54px;
+            border-radius: 18px;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 800;
+            letter-spacing: 0.04em;
+        }
+
+        .primary-btn {
+            background: linear-gradient(135deg, #69e2ff 0%, #2e8fff 100%);
+            color: #06111c;
+            box-shadow: 0 14px 28px rgba(46, 143, 255, 0.34);
+        }
+
+        .secondary-btn {
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.08));
+            color: #fff;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+        }
+
+        .ghost-btn {
+            background: transparent;
+            color: var(--text-soft);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .result-stats {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 10px;
+            margin: 18px 0 20px;
+        }
+
+        .result-stat {
+            padding: 14px 12px;
+            border-radius: 18px;
+            text-align: center;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .result-stat span {
+            display: block;
+            color: var(--text-soft);
+            font-size: 11px;
+            margin-bottom: 6px;
+            letter-spacing: 0.08em;
+        }
+
+        .result-stat strong {
+            font-size: 22px;
+            font-weight: 800;
+        }
+
+        .result-actions {
+            display: grid;
+            gap: 10px;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <canvas id="gameCanvas"></canvas>
+
+        <div id="hud" class="hidden">
+            <div class="hud-row">
+                <div class="pill" id="stagePill">STAGE 1</div>
+                <div class="pill" id="targetPill">TARGET 100</div>
+            </div>
+            <div class="score-row">
+                <div>
+                    <div class="label">SCORE</div>
+                    <div class="score-value" id="scoreValue">0</div>
+                </div>
+                <div class="stat-grid">
+                    <div class="mini-stat">
+                        <span>BEST</span>
+                        <strong id="bestValue">0</strong>
+                    </div>
+                    <div class="mini-stat accent">
+                        <span>COMBO</span>
+                        <strong id="comboValue">0</strong>
+                    </div>
+                </div>
+            </div>
+            <div class="time-wrap">
+                <div class="time-track">
+                    <div class="time-fill" id="timeFill"></div>
+                </div>
+                <div class="time-text" id="timeText">TIME 0%</div>
+            </div>
+            <div class="goal-wrap">
+                <div class="goal-track">
+                    <div class="goal-fill" id="goalFill"></div>
+                </div>
+                <div class="goal-meta">
+                    <div class="goal-text" id="goalText">DESTINATION 0%</div>
+                    <div class="goal-hint" id="goalHint">목표 100점</div>
+                </div>
+            </div>
+        </div>
+
+        <div id="controls" class="hidden">
+            <button class="control-button left" id="turnButton" aria-label="방향 전환">↺ TURN</button>
+            <button class="control-button right" id="upButton" aria-label="계단 오르기">⬆ UP</button>
+        </div>
+
+        <div id="testPanel" class="panel">
+            <div class="panel-badge">지옥의계단</div>
+            <h1>지옥의계단</h1>
+            <p class="panel-copy">
+                무한의 계단 감성으로 만든 반응형 스테이지 러너입니다.
+                다음 계단이 꺾이는 방향을 맞춰 올라가고, 타이머가 바닥나기 전에 목표 점수를 채우세요.
+            </p>
+
+            <div class="field">
+                <label for="inputStage">스테이지</label>
+                <input type="number" id="inputStage" value="1" min="1" max="99">
+            </div>
+
+            <div class="field">
+                <label for="inputHighScore">최고점수</label>
+                <input type="number" id="inputHighScore" value="0" min="0">
+            </div>
+
+            <div class="field">
+                <label for="inputCustomData">커스텀 데이터 (JSON)</label>
+                <textarea id="inputCustomData">{}</textarea>
+            </div>
+
+            <div class="instructions">
+                <div>UP 버튼으로 계단을 오르고, TURN 버튼으로 방향을 전환하세요.</div>
+                <div>한 칸마다 기본 10점, 빛나는 크리스털 계단은 보너스 점수를 줍니다.</div>
+                <div>콤보를 이어갈수록 시간 회복량이 조금씩 늘어납니다.</div>
+            </div>
+
+            <button id="startButton" class="primary-btn">게임 시작</button>
+        </div>
+
+        <div id="resultPanel" class="panel hidden">
+            <div class="panel-badge" id="resultBadge">RESULT</div>
+            <h2 id="resultTitle">게임 종료</h2>
+            <p class="panel-copy" id="resultCopy"></p>
+            <div class="result-stats">
+                <div class="result-stat">
+                    <span>점수</span>
+                    <strong id="resultScore">0</strong>
+                </div>
+                <div class="result-stat">
+                    <span>최고 콤보</span>
+                    <strong id="resultBestCombo">0</strong>
+                </div>
+                <div class="result-stat">
+                    <span>목표 칸</span>
+                    <strong id="resultTarget">0</strong>
+                </div>
+            </div>
+            <div class="result-actions">
+                <button id="retryButton" class="secondary-btn">다시 플레이</button>
+                <button id="nextStageButton" class="primary-btn hidden">다음 스테이지</button>
+                <button id="backButton" class="ghost-btn">설정으로</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        (function() {
+            'use strict';
+
+            const app = document.getElementById('app');
+            const canvas = document.getElementById('gameCanvas');
+            const ctx = canvas.getContext('2d');
+
+            console.log('Canvas found:', !!canvas);
+            console.log('App found:', !!app);
+            console.log('Canvas size:', canvas?.width, canvas?.height);
+            console.log('AndroidBridge found:', !!window.AndroidBridge);
+            console.log('CTX found:', !!ctx);
+            // CSS 렌더링 크기 진단
+            setTimeout(function() {
+                var cr = canvas.getBoundingClientRect();
+                var ar = app.getBoundingClientRect();
+                console.log('Canvas CSS rect:', cr.width, 'x', cr.height, '@ top:', cr.top, 'left:', cr.left);
+                console.log('App CSS rect:', ar.width, 'x', ar.height);
+                console.log('window inner:', window.innerWidth, 'x', window.innerHeight);
+            }, 200);
+
+            // 즉시 빨간 사각형 그려서 캔버스가 보이는지 테스트
+            if (ctx) {
+                canvas.width = 300;
+                canvas.height = 300;
+                ctx.fillStyle = 'red';
+                ctx.fillRect(0, 0, 300, 300);
+                ctx.fillStyle = 'white';
+                ctx.font = '30px sans-serif';
+                ctx.fillText('CANVAS TEST', 10, 150);
+                console.log('Test draw done');
+            } else {
+                console.log('CTX IS NULL - canvas rendering not available');
+            }
+
+            // 캔버스 배경 강제 설정
+            if (canvas) {
+                canvas.style.backgroundColor = '#0a1530';
+                canvas.style.display = 'block';
+                canvas.style.visibility = 'visible';
+                canvas.style.opacity = '1';
+            }
+            if (app) {
+                app.style.display = 'block';
+                app.style.visibility = 'visible';
+                app.style.opacity = '1';
+                // dvh 버그 대응: JS로 높이 강제 설정
+                var h = window.innerHeight || document.documentElement.clientHeight || 796;
+                app.style.height = h + 'px';
+                canvas.style.height = h + 'px';
+            }
+
+            const dom = {
+                hud: document.getElementById('hud'),
+                controls: document.getElementById('controls'),
+                stagePill: document.getElementById('stagePill'),
+                targetPill: document.getElementById('targetPill'),
+                scoreValue: document.getElementById('scoreValue'),
+                bestValue: document.getElementById('bestValue'),
+                comboValue: document.getElementById('comboValue'),
+                timeFill: document.getElementById('timeFill'),
+                timeText: document.getElementById('timeText'),
+                goalFill: document.getElementById('goalFill'),
+                goalText: document.getElementById('goalText'),
+                goalHint: document.getElementById('goalHint'),
+                upButton: document.getElementById('upButton'),
+                turnButton: document.getElementById('turnButton'),
+                testPanel: document.getElementById('testPanel'),
+                resultPanel: document.getElementById('resultPanel'),
+                resultBadge: document.getElementById('resultBadge'),
+                resultTitle: document.getElementById('resultTitle'),
+                resultCopy: document.getElementById('resultCopy'),
+                resultScore: document.getElementById('resultScore'),
+                resultBestCombo: document.getElementById('resultBestCombo'),
+                resultTarget: document.getElementById('resultTarget'),
+                startButton: document.getElementById('startButton'),
+                retryButton: document.getElementById('retryButton'),
+                nextStageButton: document.getElementById('nextStageButton'),
+                backButton: document.getElementById('backButton'),
+                inputStage: document.getElementById('inputStage'),
+                inputHighScore: document.getElementById('inputHighScore'),
+                inputCustomData: document.getElementById('inputCustomData')
+            };
+
+            const isTestMode = !window.AndroidBridge && !window.webkit?.messageHandlers?.iOSBridge;
+
+            const THEMES = [
+                {
+                    skyTop: '#12325d',
+                    skyBottom: '#08111e',
+                    glow: 'rgba(105, 226, 255, 0.22)',
+                    star: 'rgba(229, 245, 255, 0.95)',
+                    top: '#74c4ff',
+                    left: '#2e5d9f',
+                    right: '#143e73',
+                    edge: '#dff6ff',
+                    crystal: '#8ef7ff',
+                    crystalGlow: 'rgba(142, 247, 255, 0.34)',
+                    player: '#ffe08a',
+                    scarf: '#ff6f91'
+                },
+                {
+                    skyTop: '#2b235e',
+                    skyBottom: '#110d27',
+                    glow: 'rgba(174, 134, 255, 0.22)',
+                    star: 'rgba(243, 236, 255, 0.95)',
+                    top: '#d2a1ff',
+                    left: '#7449bf',
+                    right: '#472884',
+                    edge: '#f7e8ff',
+                    crystal: '#ffc87a',
+                    crystalGlow: 'rgba(255, 200, 122, 0.32)',
+                    player: '#ffd166',
+                    scarf: '#6df5ff'
+                },
+                {
+                    skyTop: '#123d47',
+                    skyBottom: '#071618',
+                    glow: 'rgba(120, 255, 211, 0.2)',
+                    star: 'rgba(232, 255, 247, 0.95)',
+                    top: '#89ffd5',
+                    left: '#24916f',
+                    right: '#15674f',
+                    edge: '#ecfff8',
+                    crystal: '#fff18a',
+                    crystalGlow: 'rgba(255, 241, 138, 0.28)',
+                    player: '#ffe9a9',
+                    scarf: '#59c0ff'
+                }
+            ];
+
+            const stars = Array.from({ length: 44 }, (_, index) => ({
+                x: ((index * 43) % 97) / 97,
+                y: (((index * 29) % 71) / 71) * 0.68,
+                size: 1 + (index % 3),
+                speed: 0.7 + (index % 5) * 0.17,
+                alpha: 0.35 + (index % 7) * 0.07
+            }));
+
+            const characterSprites = {
+                left: new Image(),
+                right: new Image()
+            };
+
+            characterSprites.left.src = 'left.png';
+            characterSprites.right.src = 'right.png';
+
+            const SoundController = {
+                context: null,
+                enabled: true,
+
+                ensureContext() {
+                    if (!this.enabled) {
+                        return null;
+                    }
+
+                    if (!this.context) {
+                        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+                        if (!AudioContextClass) {
+                            this.enabled = false;
+                            return null;
+                        }
+                        this.context = new AudioContextClass();
+                    }
+
+                    return this.context;
+                },
+
+                prime() {
+                    const context = this.ensureContext();
+                    if (context && context.state === 'suspended') {
+                        context.resume();
+                    }
+                },
+
+                pulse(options) {
+                    const context = this.ensureContext();
+                    if (!context) {
+                        return;
+                    }
+
+                    const now = context.currentTime;
+                    const oscillator = context.createOscillator();
+                    const gainNode = context.createGain();
+                    const filterNode = context.createBiquadFilter();
+
+                    const frequency = options.frequency || 440;
+                    const attack = options.attack || 0.005;
+                    const duration = options.duration || 0.12;
+                    const volume = options.volume || 0.045;
+                    const release = options.release || Math.max(0.05, duration);
+                    const type = options.type || 'sine';
+                    const endFrequency = options.endFrequency || frequency;
+
+                    oscillator.type = type;
+                    oscillator.frequency.setValueAtTime(frequency, now);
+                    oscillator.frequency.exponentialRampToValueAtTime(Math.max(40, endFrequency), now + duration);
+
+                    filterNode.type = options.filterType || 'lowpass';
+                    filterNode.frequency.setValueAtTime(options.filterFrequency || 2200, now);
+
+                    gainNode.gain.setValueAtTime(0.0001, now);
+                    gainNode.gain.exponentialRampToValueAtTime(volume, now + attack);
+                    gainNode.gain.exponentialRampToValueAtTime(0.0001, now + release);
+
+                    oscillator.connect(filterNode);
+                    filterNode.connect(gainNode);
+                    gainNode.connect(context.destination);
+
+                    oscillator.start(now);
+                    oscillator.stop(now + release + 0.02);
+                },
+
+                step(direction) {
+                    this.prime();
+                    this.pulse({
+                        frequency: direction < 0 ? 360 : 420,
+                        endFrequency: direction < 0 ? 330 : 390,
+                        duration: 0.09,
+                        release: 0.1,
+                        volume: 0.03,
+                        type: 'triangle',
+                        filterFrequency: 1800
+                    });
+                },
+
+                crystal() {
+                    this.prime();
+                    this.pulse({
+                        frequency: 860,
+                        endFrequency: 1120,
+                        duration: 0.11,
+                        release: 0.15,
+                        volume: 0.026,
+                        type: 'sine',
+                        filterFrequency: 2600
+                    });
+                    this.pulse({
+                        frequency: 1180,
+                        endFrequency: 1480,
+                        duration: 0.08,
+                        release: 0.12,
+                        volume: 0.018,
+                        type: 'triangle',
+                        filterFrequency: 3000
+                    });
+                },
+
+                clear() {
+                    this.prime();
+                    this.pulse({
+                        frequency: 520,
+                        endFrequency: 660,
+                        duration: 0.12,
+                        release: 0.14,
+                        volume: 0.032,
+                        type: 'triangle',
+                        filterFrequency: 2200
+                    });
+                    setTimeout(() => {
+                        this.pulse({
+                            frequency: 660,
+                            endFrequency: 880,
+                            duration: 0.16,
+                            release: 0.2,
+                            volume: 0.035,
+                            type: 'sine',
+                            filterFrequency: 2600
+                        });
+                    }, 90);
+                },
+
+                fail() {
+                    this.prime();
+                    this.pulse({
+                        frequency: 360,
+                        endFrequency: 220,
+                        duration: 0.2,
+                        release: 0.24,
+                        volume: 0.032,
+                        type: 'sawtooth',
+                        filterFrequency: 1400
+                    });
+                }
+            };
+
+            const state = {
+                logicalWidth: 0,
+                logicalHeight: 0,
+                running: false,
+                score: 0,
+                combo: 0,
+                bestCombo: 0,
+                timeMeter: 0,
+                stairs: [],
+                floaters: [],
+                particles: [],
+                lastTimestamp: 0,
+                difficulty: null,
+                goalStepsTotal: 0,
+                activeDir: 0,
+                activeDirTimer: 0,
+                turnTimer: 0,
+                facingDir: 1,
+                shake: 0,
+                totalSteps: 0,
+                endReason: '',
+                resultShown: false,
+                gameStartTime: 0
+            };
+
+            function asNumber(value, fallback) {
+                const parsed = Number(value);
+                return Number.isFinite(parsed) ? parsed : fallback;
+            }
+
+            function toPrettyJson(data) {
+                try {
+                    return JSON.stringify(data || {}, null, 2);
+                } catch (error) {
+                    return '{}';
+                }
+            }
+
+            function parseProgressData(raw) {
+                try {
+                    const parsed = typeof raw === 'string' ? JSON.parse(raw || '{}') : (raw || {});
+                    return {
+                        bestCombo: asNumber(parsed.bestCombo, 0),
+                        totalSteps: asNumber(parsed.totalSteps, 0),
+                        lastScore: asNumber(parsed.lastScore, 0),
+                        lastStage: asNumber(parsed.lastStage, 1),
+                        gamesPlayed: asNumber(parsed.gamesPlayed, 0),
+                        clearedCount: asNumber(parsed.clearedCount, 0)
+                    };
+                } catch (error) {
+                    return {
+                        bestCombo: 0,
+                        totalSteps: 0,
+                        lastScore: 0,
+                        lastStage: 1,
+                        gamesPlayed: 0,
+                        clearedCount: 0
+                    };
+                }
+            }
+
+            function currentTheme() {
+                return (state.difficulty && state.difficulty.theme) || THEMES[0];
+            }
+
+            function getDifficulty(stage) {
+                return {
+                    stage,
+                    targetScore: 100 * stage + 50 * (stage - 1),
+                    goalSteps: 10 + (stage - 1) * 6,
+                    drainPerSecond: Math.max(8, 10 + stage * 2.0),
+                    timeGain: Math.max(12, 26 - stage * 0.8),
+                    crystalChance: Math.min(0.45, 0.16 + stage * 0.025),
+                    comboBonusEvery: 6,
+                    laneLimit: Math.min(4, 2 + Math.floor(stage / 3)),
+                    theme: THEMES[(stage - 1) % THEMES.length]
+                };
+            }
+
+            function buildProgressSnapshot(isFinal, cleared) {
+                const base = GameBridge.customData || parseProgressData('{}');
+                return {
+                    bestCombo: Math.max(base.bestCombo || 0, state.bestCombo),
+                    totalSteps: state.totalSteps,
+                    lastScore: state.score,
+                    lastStage: GameBridge.stage,
+                    gamesPlayed: (base.gamesPlayed || 0) + (isFinal ? 1 : 0),
+                    clearedCount: (base.clearedCount || 0) + (isFinal && cleared ? 1 : 0)
+                };
+            }
+
+            const GameBridge = {
+                stage: 1,
+                highScore: 0,
+                customData: parseProgressData('{}'),
+
+                onInit(data) {
+                    this.stage = Math.max(1, asNumber(data && data.stage, 1));
+                    this.highScore = Math.max(0, asNumber(data && data.highScore, 0));
+                    this.customData = parseProgressData(data && data.customData);
+                    dom.inputStage.value = String(this.stage);
+                    dom.inputHighScore.value = String(this.highScore);
+                    dom.inputCustomData.value = toPrettyJson(this.customData);
+
+                    if (isTestMode) {
+                        showStartPanel();
+                    } else {
+                        // WebView 모드: 즉시 게임 시작 (퍼즐마블처럼)
+                        beginGame();
+                    }
+                },
+
+                // WebView에서 앱이 재시작을 요청할 때 호출
+                onRestart(data) {
+                    if (data) {
+                        this.stage = Math.max(1, asNumber(data.stage, this.stage));
+                        this.highScore = Math.max(0, asNumber(data.highScore, this.highScore));
+                        if (data.customData) {
+                            this.customData = parseProgressData(data.customData);
+                        }
+                    }
+                    if (!isTestMode) {
+                        showCountdownThenStart();
+                    } else {
+                        showStartPanel();
+                    }
+                },
+
+                updateScore(score) {
+                    if (window.AndroidBridge) {
+                        AndroidBridge.updateScore(score);
+                    } else if (window.webkit?.messageHandlers?.iOSBridge) {
+                        window.webkit.messageHandlers.iOSBridge.postMessage({
+                            type: 'updateScore',
+                            score: score
+                        });
+                    }
+                },
+
+                complete(result) {
+                    const normalized = {
+                        score: Math.max(0, asNumber(result && result.score, 0)),
+                        cleared: Boolean(result && result.cleared),
+                        nextStage: result && result.nextStage ? asNumber(result.nextStage, GameBridge.stage + 1) : null,
+                        customData: JSON.stringify((result && result.customData) || {}),
+                        reason: state.endReason || ''
+                    };
+
+                    const payload = JSON.stringify(normalized);
+
+                    if (window.AndroidBridge) {
+                        AndroidBridge.gameComplete(payload);
+                    } else if (window.webkit?.messageHandlers?.iOSBridge) {
+                        window.webkit.messageHandlers.iOSBridge.postMessage({
+                            type: 'gameComplete',
+                            score: normalized.score,
+                            cleared: normalized.cleared,
+                            nextStage: normalized.nextStage,
+                            customData: normalized.customData,
+                            reason: normalized.reason
+                        });
+                    } else {
+                        showLocalResult(normalized.cleared);
+                    }
+                },
+
+                saveData(data) {
+                    const payload = JSON.stringify(data || {});
+
+                    if (window.AndroidBridge) {
+                        AndroidBridge.saveData(payload);
+                    } else if (window.webkit?.messageHandlers?.iOSBridge) {
+                        window.webkit.messageHandlers.iOSBridge.postMessage({
+                            type: 'saveData',
+                            data: payload
+                        });
+                    }
+                },
+
+                log(message) {
+                    console.log('[SkyStairs]', message);
+                    if (window.AndroidBridge && AndroidBridge.log) {
+                        AndroidBridge.log(message);
+                    }
+                }
+            };
+
+            window.GameBridge = GameBridge;
+
+            function makeCurrentStep(x) {
+                return {
+                    x,
+                    reward: 0,
+                    phase: 0,
+                    isGoal: false
+                };
+            }
+
+            function generateStep(previousStep) {
+                const limit = state.difficulty ? state.difficulty.laneLimit : 2;
+                let direction;
+
+                if (previousStep.x <= -limit) {
+                    direction = 1;
+                } else if (previousStep.x >= limit) {
+                    direction = -1;
+                } else if (Math.abs(previousStep.x) === limit - 1) {
+                    const biasToCenter = previousStep.x > 0 ? -1 : 1;
+                    direction = Math.random() < 0.72 ? biasToCenter : -biasToCenter;
+                } else {
+                    direction = Math.random() < 0.5 ? -1 : 1;
+                }
+
+                return {
+                    x: previousStep.x + direction,
+                    reward: Math.random() < (state.difficulty ? state.difficulty.crystalChance : 0.2)
+                        ? 12 + Math.min(18, GameBridge.stage * 2)
+                        : 0,
+                    phase: Math.random() * Math.PI * 2,
+                    isGoal: false
+                };
+            }
+
+            function createCourse(goalSteps) {
+                const stairs = [makeCurrentStep(0)];
+                while (stairs.length <= goalSteps) {
+                    stairs.push(generateStep(stairs[stairs.length - 1]));
+                }
+                stairs[stairs.length - 1].isGoal = true;
+                stairs[stairs.length - 1].reward = 0;
+                return stairs;
+            }
+
+            function createPreviewStairs() {
+                const previousDifficulty = state.difficulty;
+                const previewDifficulty = getDifficulty(1);
+                state.difficulty = previewDifficulty;
+                const stairs = createCourse(previewDifficulty.goalSteps);
+                state.difficulty = previousDifficulty || previewDifficulty;
+                return stairs;
+            }
+
+            function createStairsForGame() {
+                return createCourse(state.difficulty ? state.difficulty.goalSteps : 10);
+            }
+
+            function resizeCanvas() {
+                const rect = app.getBoundingClientRect();
+                const fallbackWidth = Math.max(
+                    app.clientWidth || 0,
+                    window.innerWidth || 0,
+                    document.documentElement.clientWidth || 0,
+                    360
+                );
+                const fallbackHeight = Math.max(
+                    app.clientHeight || 0,
+                    window.innerHeight || 0,
+                    document.documentElement.clientHeight || 0,
+                    640
+                );
+                const width = Math.max(rect.width || 0, fallbackWidth);
+                const height = Math.max(rect.height || 0, fallbackHeight);
+                const dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 2));
+                state.logicalWidth = width;
+                state.logicalHeight = height;
+                canvas.width = Math.max(1, Math.floor(width * dpr));
+                canvas.height = Math.max(1, Math.floor(height * dpr));
+                ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            }
+
+            function resetEffects() {
+                state.floaters = [];
+                state.particles = [];
+                state.activeDir = 0;
+                state.activeDirTimer = 0;
+                state.shake = 0;
+            }
+
+            function beginGame() {
+                console.log('beginGame() called');
+                console.log('Canvas at beginGame:', canvas?.width, canvas?.height);
+
+                // 카운트다운 정리
+                state._countdownValue = 0;
+                if (countdownTimer) {
+                    clearTimeout(countdownTimer);
+                    countdownTimer = null;
+                }
+
+                console.log('Calling resizeCanvas');
+                resizeCanvas();
+                console.log('After resizeCanvas:', canvas?.width, canvas?.height);
+                SoundController.prime();
+                state.difficulty = getDifficulty(GameBridge.stage);
+                state.goalStepsTotal = state.difficulty.goalSteps;
+                state.stairs = createStairsForGame();
+                state.score = 0;
+                state.combo = 0;
+                state.bestCombo = GameBridge.customData.bestCombo || 0;
+                state.totalSteps = GameBridge.customData.totalSteps || 0;
+                state.timeMeter = 100;
+                state.running = true;
+                state.resultShown = false;
+                state.endReason = '';
+                state.facingDir = getRequiredDirection() || 1;
+                state.gameStartTime = Date.now();
+                resetEffects();
+
+                dom.testPanel.classList.add('hidden');
+                dom.testPanel.style.display = 'none';
+                dom.resultPanel.classList.add('hidden');
+                dom.resultPanel.style.display = 'none';
+                dom.hud.classList.remove('hidden');
+                dom.controls.classList.remove('hidden');
+
+                GameBridge.updateScore(0);
+                updateHud();
+                GameBridge.log('Sky Stairs start');
+            }
+
+            function returnToSetup() {
+                state.running = false;
+                state.resultShown = false;
+                state.endReason = '';
+                state.facingDir = 1;
+                resetEffects();
+                state.difficulty = getDifficulty(Math.max(1, GameBridge.stage));
+                state.goalStepsTotal = state.difficulty.goalSteps;
+                state.stairs = createPreviewStairs();
+
+                dom.resultPanel.classList.add('hidden');
+                dom.resultPanel.style.display = 'none';
+                showStartPanel();
+            }
+
+            var countdownTimer = null;
+
+            function showCountdownThenStart() {
+                // 진행 중인 카운트다운 취소
+                if (countdownTimer) {
+                    clearTimeout(countdownTimer);
+                    countdownTimer = null;
+                }
+
+                // 이전 게임 상태 정리
+                state.running = false;
+                state.resultShown = false;
+                state.endReason = '';
+                resetEffects();
+
+                // 패널 모두 숨기기
+                dom.testPanel.classList.add('hidden');
+                dom.testPanel.style.display = 'none';
+                dom.resultPanel.classList.add('hidden');
+                dom.resultPanel.style.display = 'none';
+                dom.hud.classList.add('hidden');
+                dom.controls.classList.add('hidden');
+
+                // 미리보기 계단 세팅
+                state.difficulty = getDifficulty(GameBridge.stage);
+                state.goalStepsTotal = state.difficulty.goalSteps;
+                state.stairs = createPreviewStairs();
+
+                resizeCanvas();
+
+                // 카운트다운 표시를 위한 상태
+                var countdown = 3;
+                state._countdownValue = countdown;
+
+                function tick() {
+                    if (countdown > 0) {
+                        state._countdownValue = countdown;
+                        countdown--;
+                        countdownTimer = setTimeout(tick, 600);
+                    } else {
+                        state._countdownValue = 0;
+                        countdownTimer = null;
+                        beginGame();
+                    }
+                }
+                tick();
+            }
+
+            function showStartPanel() {
+                const showDebugFields = isTestMode;
+                dom.testPanel.querySelectorAll('.field').forEach(function(field) {
+                    field.classList.toggle('hidden', !showDebugFields);
+                });
+
+                dom.testPanel.classList.remove('hidden');
+                dom.testPanel.style.display = 'block';
+                dom.resultPanel.classList.add('hidden');
+                dom.resultPanel.style.display = 'none';
+                dom.hud.classList.add('hidden');
+                dom.controls.classList.add('hidden');
+                updateHud();
+            }
+
+            function getRequiredDirection() {
+                if (state.stairs.length < 2) {
+                    return 0;
+                }
+                return state.stairs[1].x > state.stairs[0].x ? 1 : -1;
+            }
+
+            function getGoalProgress() {
+                if (!state.goalStepsTotal) {
+                    return 0;
+                }
+                return Math.max(0, Math.min(1, (state.goalStepsTotal - getGoalRemaining()) / state.goalStepsTotal));
+            }
+
+            function getGoalRemaining() {
+                return Math.max(0, state.stairs.length - 1);
+            }
+
+            function updateHud() {
+                const difficulty = state.difficulty || getDifficulty(GameBridge.stage);
+                const bestScore = Math.max(GameBridge.highScore, state.score);
+                const timer = Math.max(0, Math.min(100, state.timeMeter));
+                const goalProgress = getGoalProgress();
+                const remaining = getGoalRemaining();
+                let fill = 'linear-gradient(90deg, #8cffb6 0%, #69e2ff 54%, #2f8fff 100%)';
+
+                if (timer < 45) {
+                    fill = 'linear-gradient(90deg, #ffe08a 0%, #ff9d5c 55%, #ff6f91 100%)';
+                }
+                if (timer < 20) {
+                    fill = 'linear-gradient(90deg, #ff9d5c 0%, #ff6f91 100%)';
+                }
+
+                dom.stagePill.textContent = `STAGE ${GameBridge.stage}`;
+                dom.targetPill.textContent = remaining > 0 ? `LEFT ${remaining}` : 'ARRIVED';
+                dom.scoreValue.textContent = String(state.score);
+                dom.bestValue.textContent = String(bestScore);
+                dom.comboValue.textContent = String(state.combo);
+                dom.timeFill.style.width = `${timer}%`;
+                dom.timeFill.style.background = fill;
+                dom.timeFill.style.filter = timer < 20 ? 'saturate(1.2) brightness(1.2)' : 'none';
+                dom.timeText.textContent = `TIME ${Math.ceil(timer)}%`;
+                dom.goalFill.style.width = `${Math.round(goalProgress * 100)}%`;
+                dom.goalText.textContent = `DESTINATION ${Math.round(goalProgress * 100)}%`;
+                dom.goalHint.textContent = remaining > 0
+                    ? `목적지 계단까지 ${remaining}칸 · 총 ${state.goalStepsTotal}칸`
+                    : `도착 완료 · 총 ${state.goalStepsTotal}칸`;
+
+                dom.upButton.classList.toggle('active', state.activeDirTimer > 0);
+                dom.turnButton.classList.toggle('active', state.turnTimer > 0);
+            }
+
+            function getStepScreen(step, index, timeSeconds) {
+                const baseX = state.logicalWidth * 0.5;
+                const baseY = state.logicalHeight - 190;
+                const spacingX = 54;
+                const spacingY = 62;
+                const scale = Math.max(0.58, 1 - index * 0.045);
+                const wobble = Math.sin(timeSeconds * 1.8 + index * 0.5) * 1.4;
+
+                return {
+                    x: baseX + step.x * spacingX,
+                    y: baseY - index * spacingY + wobble,
+                    scale
+                };
+            }
+
+            function drawDiamond(x, y, width, height, fillStyle, strokeStyle) {
+                ctx.beginPath();
+                ctx.moveTo(x, y - height);
+                ctx.lineTo(x + width, y);
+                ctx.lineTo(x, y + height);
+                ctx.lineTo(x - width, y);
+                ctx.closePath();
+                ctx.fillStyle = fillStyle;
+                ctx.fill();
+                if (strokeStyle) {
+                    ctx.strokeStyle = strokeStyle;
+                    ctx.lineWidth = 1.4;
+                    ctx.stroke();
+                }
+            }
+
+            function drawStep(step, index, timeSeconds) {
+                const theme = currentTheme();
+                const screen = getStepScreen(step, index, timeSeconds);
+                const halfWidth = 52 * screen.scale;
+                const halfHeight = 18 * screen.scale;
+                const depth = 22 * screen.scale;
+                const emphasis = index === 0 ? 1 : 0;
+
+                ctx.save();
+
+                drawDiamond(
+                    screen.x,
+                    screen.y + depth,
+                    halfWidth,
+                    halfHeight,
+                    theme.left,
+                    null
+                );
+
+                ctx.beginPath();
+                ctx.moveTo(screen.x + halfWidth, screen.y);
+                ctx.lineTo(screen.x + halfWidth, screen.y + depth);
+                ctx.lineTo(screen.x, screen.y + halfHeight + depth);
+                ctx.lineTo(screen.x, screen.y + halfHeight);
+                ctx.closePath();
+                ctx.fillStyle = theme.right;
+                ctx.fill();
+
+                const topColor = step.isGoal
+                    ? '#ffe8a8'
+                    : (emphasis ? theme.edge : theme.top);
+
+                drawDiamond(
+                    screen.x,
+                    screen.y,
+                    halfWidth,
+                    halfHeight,
+                    topColor,
+                    `rgba(255,255,255,${index < 2 ? 0.44 : 0.18})`
+                );
+
+                if (index === 1 && state.running) {
+                    const directionText = step.isGoal
+                        ? 'GOAL'
+                        : (getRequiredDirection() === -1 ? 'LEFT' : 'RIGHT');
+                    ctx.fillStyle = 'rgba(255,255,255,0.88)';
+                    ctx.font = `${Math.round(12 * screen.scale + 6)}px sans-serif`;
+                    ctx.textAlign = 'center';
+                    ctx.fillText(directionText, screen.x, screen.y - 22 * screen.scale);
+                }
+
+                if (step.isGoal) {
+                    const poleX = screen.x + halfWidth * 0.42;
+                    const poleBottom = screen.y - 2 * screen.scale;
+                    const poleTop = poleBottom - 42 * screen.scale;
+
+                    ctx.save();
+                    ctx.shadowColor = 'rgba(255, 232, 168, 0.26)';
+                    ctx.shadowBlur = 18;
+
+                    ctx.strokeStyle = 'rgba(255,255,255,0.95)';
+                    ctx.lineWidth = Math.max(2, 3 * screen.scale);
+                    ctx.lineCap = 'round';
+                    ctx.beginPath();
+                    ctx.moveTo(poleX, poleBottom);
+                    ctx.lineTo(poleX, poleTop);
+                    ctx.stroke();
+
+                    ctx.beginPath();
+                    ctx.moveTo(poleX, poleTop);
+                    ctx.lineTo(poleX + 24 * screen.scale, poleTop + 8 * screen.scale);
+                    ctx.lineTo(poleX, poleTop + 16 * screen.scale);
+                    ctx.closePath();
+                    ctx.fillStyle = '#ff6f91';
+                    ctx.fill();
+
+                    ctx.fillStyle = '#fff2c7';
+                    ctx.font = `${Math.round(11 * screen.scale + 4)}px sans-serif`;
+                    ctx.textAlign = 'center';
+                    ctx.fillText('GOAL', screen.x, poleTop - 10 * screen.scale);
+                    ctx.restore();
+                }
+
+                if (step.reward > 0 && index > 0) {
+                    const crystalY = screen.y - 24 * screen.scale + Math.sin(timeSeconds * 5 + step.phase) * 4;
+                    ctx.save();
+                    ctx.shadowColor = theme.crystalGlow;
+                    ctx.shadowBlur = 16;
+                    drawDiamond(
+                        screen.x,
+                        crystalY,
+                        8 * screen.scale,
+                        12 * screen.scale,
+                        theme.crystal,
+                        'rgba(255,255,255,0.55)'
+                    );
+                    ctx.restore();
+                }
+
+                ctx.restore();
+            }
+
+            function drawFallbackPlayer(screen, baseY, lean) {
+                const theme = currentTheme();
+
+                ctx.save();
+                ctx.translate(screen.x, baseY);
+
+                ctx.strokeStyle = theme.player;
+                ctx.lineWidth = 6;
+                ctx.lineCap = 'round';
+
+                ctx.beginPath();
+                ctx.moveTo(0, 6);
+                ctx.lineTo(lean, 25);
+                ctx.stroke();
+
+                ctx.beginPath();
+                ctx.moveTo(lean, 24);
+                ctx.lineTo(-10 + lean, 39);
+                ctx.moveTo(lean, 24);
+                ctx.lineTo(11 + lean, 38);
+                ctx.stroke();
+
+                ctx.beginPath();
+                ctx.moveTo(-2, 16);
+                ctx.lineTo(-16 + lean * 0.3, 28);
+                ctx.moveTo(1, 18);
+                ctx.lineTo(15 + lean * 0.35, 27);
+                ctx.stroke();
+
+                ctx.fillStyle = theme.scarf;
+                ctx.beginPath();
+                ctx.moveTo(3, 10);
+                ctx.lineTo(18 + lean * 0.4, 14);
+                ctx.lineTo(6, 18);
+                ctx.closePath();
+                ctx.fill();
+
+                ctx.fillStyle = theme.player;
+                ctx.beginPath();
+                ctx.arc(0, -5, 11, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.fillStyle = '#1b1321';
+                ctx.beginPath();
+                ctx.arc(4, -6, 1.5, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.restore();
+            }
+
+            function drawPlayer(timeSeconds) {
+                if (!state.stairs.length) {
+                    return;
+                }
+
+                const screen = getStepScreen(state.stairs[0], 0, timeSeconds);
+                const bounce = state.running ? Math.sin(timeSeconds * 10) * 1.6 : Math.sin(timeSeconds * 2) * 1.4;
+                const baseY = screen.y - 18 + bounce;
+                const lean = state.activeDir === 0 ? state.facingDir * 3 : state.activeDir * 6;
+                const sprite = state.facingDir < 0 ? characterSprites.left : characterSprites.right;
+                const spriteReady = sprite.complete && sprite.naturalWidth > 0;
+                const spriteSize = 126 * screen.scale;
+                const footY = screen.y + 20 * screen.scale;
+
+                ctx.save();
+
+                ctx.fillStyle = 'rgba(0,0,0,0.28)';
+                ctx.beginPath();
+                ctx.ellipse(screen.x, screen.y + 10, 28, 9, 0, 0, Math.PI * 2);
+                ctx.fill();
+
+                if (spriteReady) {
+                    ctx.save();
+                    ctx.shadowColor = 'rgba(0,0,0,0.22)';
+                    ctx.shadowBlur = 18;
+                    ctx.drawImage(
+                        sprite,
+                        screen.x - spriteSize * 0.5 + state.facingDir * 3,
+                        footY - spriteSize,
+                        spriteSize,
+                        spriteSize
+                    );
+                    ctx.restore();
+                } else {
+                    drawFallbackPlayer(screen, baseY, lean);
+                }
+
+                ctx.restore();
+            }
+
+            function spawnFloater(text, x, y, color) {
+                state.floaters.push({
+                    text,
+                    x,
+                    y,
+                    color,
+                    life: 0.8,
+                    maxLife: 0.8,
+                    vy: -34
+                });
+            }
+
+            function spawnBurst(x, y, color) {
+                for (let index = 0; index < 12; index++) {
+                    const angle = (Math.PI * 2 * index) / 12 + Math.random() * 0.2;
+                    const speed = 40 + Math.random() * 80;
+                    state.particles.push({
+                        x,
+                        y,
+                        vx: Math.cos(angle) * speed,
+                        vy: Math.sin(angle) * speed - 20,
+                        life: 0.55 + Math.random() * 0.2,
+                        maxLife: 0.75,
+                        size: 2 + Math.random() * 3,
+                        color
+                    });
+                }
+            }
+
+            function maybeSaveProgress() {
+                const snapshot = buildProgressSnapshot(false, false);
+                GameBridge.customData = snapshot;
+                GameBridge.saveData(snapshot);
+            }
+
+            function finishGame(cleared, reason) {
+                if (!state.running) {
+                    return;
+                }
+
+                state.running = false;
+                state.endReason = reason;
+                state.resultShown = true;
+                GameBridge.highScore = Math.max(GameBridge.highScore, state.score);
+
+                if (cleared) {
+                    SoundController.clear();
+                } else {
+                    SoundController.fail();
+                }
+
+                const snapshot = buildProgressSnapshot(true, cleared);
+                GameBridge.customData = snapshot;
+
+                GameBridge.complete({
+                    score: state.score,
+                    cleared,
+                    nextStage: cleared ? GameBridge.stage + 1 : GameBridge.stage,
+                    customData: snapshot
+                });
+
+                updateHud();
+            }
+
+            function processMove(direction) {
+                if (!state.running || state.stairs.length < 2) {
+                    return;
+                }
+
+                // 시작하자마자 입력되는 것 방지 (0.2초 여유)
+                if (Date.now() - state.gameStartTime < 220) {
+                    return;
+                }
+
+                state.activeDir = direction;
+                state.activeDirTimer = 0.18;
+                state.facingDir = direction;
+                SoundController.step(direction);
+
+                const expected = getRequiredDirection();
+
+                if (direction !== expected) {
+                    state.combo = 0;
+                    finishGame(false, '방향을 잘못 골랐어요.');
+                    return;
+                }
+
+                const landingStep = state.stairs[1];
+                const landingScreen = getStepScreen(landingStep, 1, performance.now() / 1000);
+                const bonusTime = Math.min(5, state.combo * 0.3);
+                const reachedGoal = Boolean(landingStep.isGoal);
+
+                state.stairs.shift();
+
+                state.combo += 1;
+                state.bestCombo = Math.max(state.bestCombo, state.combo);
+                state.totalSteps += 1;
+
+                let gained = 10;
+                if (landingStep.reward > 0) {
+                    gained += landingStep.reward;
+                    SoundController.crystal();
+                    spawnFloater(`+${landingStep.reward}`, landingScreen.x, landingScreen.y - 20, currentTheme().crystal);
+                }
+
+                if (state.combo > 0 && state.combo % state.difficulty.comboBonusEvery === 0) {
+                    const comboBonus = 12 + Math.min(28, state.combo * 2);
+                    gained += comboBonus;
+                    spawnFloater(`COMBO +${comboBonus}`, landingScreen.x, landingScreen.y - 52, '#ffd166');
+                }
+
+                state.score += gained;
+                state.timeMeter = Math.min(100, state.timeMeter + state.difficulty.timeGain + bonusTime + (landingStep.reward > 0 ? 5 : 0));
+                state.shake = Math.min(10, state.shake + 5);
+
+                spawnFloater(`+${gained}`, landingScreen.x, landingScreen.y - 6, '#ffffff');
+                spawnBurst(landingScreen.x, landingScreen.y - 8, currentTheme().edge);
+
+                if (state.totalSteps % 5 === 0) {
+                    maybeSaveProgress();
+                }
+
+                GameBridge.updateScore(state.score);
+                updateHud();
+
+                if (reachedGoal) {
+                    finishGame(true, '깃발이 꽂힌 목적지에 도착했어요.');
+                }
+            }
+
+            function updateEffects(deltaSeconds) {
+                if (state.activeDirTimer > 0) {
+                    state.activeDirTimer -= deltaSeconds;
+                    if (state.activeDirTimer <= 0) {
+                        state.activeDirTimer = 0;
+                        state.activeDir = 0;
+                    }
+                }
+
+                if (state.turnTimer > 0) {
+                    state.turnTimer = Math.max(0, state.turnTimer - deltaSeconds);
+                }
+
+                state.shake = Math.max(0, state.shake - deltaSeconds * 12);
+
+                state.floaters = state.floaters.filter((floater) => {
+                    floater.life -= deltaSeconds;
+                    floater.y += floater.vy * deltaSeconds;
+                    return floater.life > 0;
+                });
+
+                state.particles = state.particles.filter((particle) => {
+                    particle.life -= deltaSeconds;
+                    particle.x += particle.vx * deltaSeconds;
+                    particle.y += particle.vy * deltaSeconds;
+                    particle.vy += 120 * deltaSeconds;
+                    return particle.life > 0;
+                });
+            }
+
+            function update(deltaSeconds) {
+                if (state.running && state.difficulty) {
+                    state.timeMeter -= state.difficulty.drainPerSecond * deltaSeconds;
+                    if (state.timeMeter <= 0) {
+                        state.timeMeter = 0;
+                        finishGame(false, '시간이 바닥났어요.');
+                    }
+                }
+
+                updateEffects(deltaSeconds);
+                updateHud();
+            }
+
+            function drawBackground(timeSeconds) {
+                // DEBUG: 캔버스 렌더링 확인용 밝은 배경
+                ctx.fillStyle = '#FF00FF';
+                ctx.fillRect(0, 0, state.logicalWidth, state.logicalHeight);
+
+                const theme = currentTheme();
+                const width = state.logicalWidth;
+                const height = state.logicalHeight;
+                const gradient = ctx.createLinearGradient(0, 0, 0, height);
+
+                gradient.addColorStop(0, theme.skyTop);
+                gradient.addColorStop(1, theme.skyBottom);
+
+                ctx.fillStyle = gradient;
+                ctx.fillRect(0, 0, width, height);
+
+                const glowGradient = ctx.createRadialGradient(
+                    width * 0.5,
+                    height * 0.2,
+                    20,
+                    width * 0.5,
+                    height * 0.2,
+                    width * 0.55
+                );
+                glowGradient.addColorStop(0, theme.glow);
+                glowGradient.addColorStop(1, 'rgba(0,0,0,0)');
+                ctx.fillStyle = glowGradient;
+                ctx.fillRect(0, 0, width, height);
+
+                ctx.fillStyle = 'rgba(255,255,255,0.04)';
+                for (let index = 0; index < 4; index++) {
+                    const mountainX = (index - 1) * 120;
+                    ctx.beginPath();
+                    ctx.moveTo(mountainX, height * 0.78);
+                    ctx.quadraticCurveTo(mountainX + 90, height * (0.55 + index * 0.03), mountainX + 210, height * 0.78);
+                    ctx.lineTo(mountainX + 210, height);
+                    ctx.lineTo(mountainX, height);
+                    ctx.closePath();
+                    ctx.fill();
+                }
+
+                stars.forEach((star) => {
+                    const twinkle = 0.5 + Math.sin(timeSeconds * star.speed + star.x * 12) * 0.5;
+                    ctx.fillStyle = `rgba(255,255,255,${Math.max(0.15, star.alpha * twinkle)})`;
+                    ctx.beginPath();
+                    ctx.arc(
+                        star.x * width,
+                        star.y * height,
+                        star.size,
+                        0,
+                        Math.PI * 2
+                    );
+                    ctx.fill();
+                });
+            }
+
+            function drawScene(timeSeconds) {
+                ctx.save();
+
+                if (state.shake > 0) {
+                    const shakeX = (Math.random() - 0.5) * state.shake;
+                    const shakeY = (Math.random() - 0.5) * state.shake;
+                    ctx.translate(shakeX, shakeY);
+                }
+
+                for (let index = state.stairs.length - 1; index >= 0; index--) {
+                    drawStep(state.stairs[index], index, timeSeconds);
+                }
+
+                drawPlayer(timeSeconds);
+
+                state.particles.forEach((particle) => {
+                    ctx.save();
+                    ctx.globalAlpha = Math.max(0, particle.life / particle.maxLife);
+                    ctx.fillStyle = particle.color;
+                    ctx.beginPath();
+                    ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.restore();
+                });
+
+                state.floaters.forEach((floater) => {
+                    ctx.save();
+                    ctx.globalAlpha = Math.max(0, floater.life / floater.maxLife);
+                    ctx.fillStyle = floater.color;
+                    ctx.font = 'bold 16px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(floater.text, floater.x, floater.y);
+                    ctx.restore();
+                });
+
+                ctx.restore();
+            }
+
+            function drawInstructionHint() {
+                if (state.running || !isTestMode) {
+                    return;
+                }
+
+                ctx.save();
+                ctx.fillStyle = 'rgba(255,255,255,0.72)';
+                ctx.font = '600 14px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText('UP으로 오르고, TURN으로 방향을 전환하세요', state.logicalWidth * 0.5, state.logicalHeight - 120);
+                ctx.restore();
+            }
+
+            function drawCountdown() {
+                if (!state._countdownValue || state._countdownValue <= 0) {
+                    return;
+                }
+                var text = String(state._countdownValue);
+                ctx.save();
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+                ctx.fillRect(0, 0, state.logicalWidth, state.logicalHeight);
+                ctx.fillStyle = '#ffffff';
+                ctx.font = '900 96px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.shadowColor = 'rgba(105, 226, 255, 0.6)';
+                ctx.shadowBlur = 30;
+                ctx.fillText(text, state.logicalWidth * 0.5, state.logicalHeight * 0.4);
+                ctx.shadowBlur = 0;
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+                ctx.font = '700 20px sans-serif';
+                ctx.fillText('준비하세요!', state.logicalWidth * 0.5, state.logicalHeight * 0.4 + 70);
+                ctx.restore();
+            }
+
+            function draw(timeSeconds) {
+                drawBackground(timeSeconds);
+                drawScene(timeSeconds);
+                drawInstructionHint();
+                drawCountdown();
+            }
+
+            function loop(timestamp) {
+                if (!window._loopCount) {
+                    window._loopCount = 0;
+                    console.log('loop() starting');
+                }
+                window._loopCount++;
+                if (window._loopCount === 1 || window._loopCount % 60 === 0) {
+                    console.log('loop frame:', window._loopCount, 'state.running:', state.running);
+                }
+
+                if (canvas.width === 0 || canvas.height === 0 || state.logicalWidth === 0 || state.logicalHeight === 0) {
+                    resizeCanvas();
+                }
+
+                if (!state.lastTimestamp) {
+                    state.lastTimestamp = timestamp;
+                }
+
+                const deltaSeconds = Math.min(0.033, (timestamp - state.lastTimestamp) / 1000 || 0.016);
+                state.lastTimestamp = timestamp;
+
+                update(deltaSeconds);
+                draw(timestamp / 1000);
+                requestAnimationFrame(loop);
+            }
+
+            function showLocalResult(cleared) {
+                if (!isTestMode) {
+                    return;
+                }
+
+                dom.resultBadge.textContent = cleared ? 'STAGE CLEAR' : 'GAME OVER';
+                dom.resultTitle.textContent = cleared ? '계단을 돌파했어요' : '발판에서 미끄러졌어요';
+                dom.resultCopy.textContent = state.endReason || (cleared
+                    ? '다음 스테이지로 이어서 플레이할 수 있습니다.'
+                    : '리듬을 다시 잡고 더 높이 올라가 보세요.');
+                dom.resultScore.textContent = String(state.score);
+                dom.resultBestCombo.textContent = String(state.bestCombo);
+                dom.resultTarget.textContent = String(state.goalStepsTotal || 0);
+                dom.nextStageButton.classList.toggle('hidden', !cleared);
+
+                dom.resultPanel.style.display = 'block';
+                dom.resultPanel.classList.remove('hidden');
+                dom.hud.classList.remove('hidden');
+                dom.controls.classList.remove('hidden');
+            }
+
+            function handleUp() {
+                processMove(state.facingDir);
+            }
+
+            function handleTurn() {
+                if (!state.running) return;
+                state.facingDir = -state.facingDir;
+                state.turnTimer = 0.18;
+                processMove(state.facingDir);
+            }
+
+            dom.startButton.addEventListener('click', function() {
+                SoundController.prime();
+                if (isTestMode) {
+                    const stage = Math.max(1, asNumber(dom.inputStage.value, 1));
+                    const highScore = Math.max(0, asNumber(dom.inputHighScore.value, 0));
+                    const customData = dom.inputCustomData.value || '{}';
+
+                    GameBridge.stage = stage;
+                    GameBridge.highScore = highScore;
+                    GameBridge.customData = parseProgressData(customData);
+                }
+
+                beginGame();
+            });
+
+            dom.retryButton.addEventListener('click', function() {
+                SoundController.prime();
+                beginGame();
+            });
+
+            dom.nextStageButton.addEventListener('click', function() {
+                SoundController.prime();
+                GameBridge.stage += 1;
+                beginGame();
+            });
+
+            dom.backButton.addEventListener('click', function() {
+                returnToSetup();
+            });
+
+            dom.upButton.addEventListener('pointerdown', function(event) {
+                event.preventDefault();
+                SoundController.prime();
+                handleUp();
+            });
+
+            dom.turnButton.addEventListener('pointerdown', function(event) {
+                event.preventDefault();
+                SoundController.prime();
+                handleTurn();
+            });
+
+            window.addEventListener('keydown', function(event) {
+                if (event.repeat) {
+                    return;
+                }
+
+                SoundController.prime();
+
+                if (event.key === 'ArrowUp' || event.key === ' ') {
+                    handleUp();
+                } else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'ArrowDown' || event.key === 'r' || event.key === 'R') {
+                    handleTurn();
+                }
+            });
+
+            window.addEventListener('resize', resizeCanvas);
+            window.addEventListener('orientationchange', function() {
+                setTimeout(resizeCanvas, 50);
+            });
+
+            if (typeof ResizeObserver !== 'undefined') {
+                const resizeObserver = new ResizeObserver(function() {
+                    resizeCanvas();
+                });
+                resizeObserver.observe(app);
+            }
+
+            document.addEventListener('visibilitychange', function() {
+                if (!document.hidden) {
+                    setTimeout(resizeCanvas, 0);
+                }
+            });
+
+            // 초기 상태 설정
+            state.difficulty = getDifficulty(1);
+            state.goalStepsTotal = state.difficulty.goalSteps;
+            state.stairs = createPreviewStairs();
+            resizeCanvas();
+            setTimeout(resizeCanvas, 0);
+            setTimeout(resizeCanvas, 150);
+            setTimeout(resizeCanvas, 500);
+
+            // 테스트 모드에서만 시작 패널 표시
+            if (isTestMode) {
+                showStartPanel();
+            }
+            // WebView 모드: onInit이 직접 beginGame() 호출할 것임
+
+            updateHud();
+            requestAnimationFrame(loop);
+        })();
+    </script>
+</body>
+</html>

@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Game Template</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #fff;
+            overflow: hidden;
+            touch-action: none;
+        }
+
+        #game-container {
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #score-display {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            font-size: 24px;
+            font-weight: bold;
+        }
+
+        #stage-display {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            font-size: 18px;
+        }
+
+        #game-area {
+            width: 100%;
+            max-width: 400px;
+            aspect-ratio: 3/4;
+            background: #16213e;
+            border-radius: 12px;
+            position: relative;
+        }
+
+        /* 테스트 패널 스타일 */
+        #test-panel {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.95);
+            padding: 30px;
+            border-radius: 16px;
+            z-index: 9999;
+            min-width: 300px;
+        }
+
+        #test-panel h3 {
+            margin-bottom: 20px;
+            color: #00d4ff;
+        }
+
+        #test-panel label {
+            display: block;
+            margin-bottom: 15px;
+        }
+
+        #test-panel input, #test-panel textarea {
+            width: 100%;
+            padding: 8px;
+            margin-top: 5px;
+            border-radius: 4px;
+            border: 1px solid #444;
+            background: #222;
+            color: #fff;
+        }
+
+        #test-panel button {
+            width: 100%;
+            padding: 12px;
+            margin-top: 10px;
+            background: #00d4ff;
+            color: #000;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        #test-panel button:hover {
+            background: #00b8e6;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container" class="hidden">
+        <div id="score-display">Score: 0</div>
+        <div id="stage-display">Stage 1</div>
+        <div id="game-area">
+            <!-- 게임 요소들 -->
+        </div>
+    </div>
+
+    <div id="test-panel">
+        <h3>테스트 설정</h3>
+        <label>
+            스테이지:
+            <input type="number" id="test-stage" value="1" min="1">
+        </label>
+        <label>
+            최고점수:
+            <input type="number" id="test-highscore" value="0">
+        </label>
+        <label>
+            커스텀 데이터 (JSON):
+            <textarea id="test-customdata">{}</textarea>
+        </label>
+        <button id="test-start">게임 시작</button>
+    </div>
+
+    <script>
+        // ========================================
+        // GameBridge - 앱과의 통신 인터페이스
+        // ========================================
+        const GameBridge = {
+            stage: 1,
+            highScore: 0,
+            customData: {},
+
+            // 앱에서 호출됨 - 게임 초기화
+            onInit: function(data) {
+                this.stage = data.stage || 1;
+                this.highScore = data.highScore || 0;
+                this.customData = JSON.parse(data.customData || '{}');
+
+                console.log('[GameBridge] Initialized:', data);
+                startGame();
+            },
+
+            // 점수 업데이트
+            updateScore: function(score) {
+                if (window.AndroidBridge) {
+                    AndroidBridge.updateScore(score);
+                } else if (window.webkit?.messageHandlers?.iOSBridge) {
+                    webkit.messageHandlers.iOSBridge.postMessage({
+                        type: 'updateScore',
+                        score: score
+                    });
+                }
+            },
+
+            // 게임 완료
+            complete: function(result) {
+                const payload = JSON.stringify(result);
+                console.log('[GameBridge] Complete:', result);
+
+                if (window.AndroidBridge) {
+                    AndroidBridge.gameComplete(payload);
+                } else if (window.webkit?.messageHandlers?.iOSBridge) {
+                    webkit.messageHandlers.iOSBridge.postMessage({
+                        type: 'gameComplete',
+                        score: result.score,
+                        cleared: result.cleared,
+                        customData: JSON.stringify(result.customData || {})
+                    });
+                } else {
+                    // 테스트 모드에서는 알림 표시
+                    alert(`게임 완료!\n점수: ${result.score}\n클리어: ${result.cleared ? '성공' : '실패'}`);
+                    location.reload();
+                }
+            },
+
+            // 실시간 데이터 저장
+            saveData: function(data) {
+                const payload = JSON.stringify(data);
+
+                if (window.AndroidBridge) {
+                    AndroidBridge.saveData(payload);
+                } else if (window.webkit?.messageHandlers?.iOSBridge) {
+                    webkit.messageHandlers.iOSBridge.postMessage({
+                        type: 'saveData',
+                        data: payload
+                    });
+                }
+            },
+
+            log: function(message) {
+                console.log('[GameBridge]', message);
+                if (window.AndroidBridge) {
+                    AndroidBridge.log(message);
+                }
+            }
+        };
+
+        // ========================================
+        // 난이도 시스템
+        // ========================================
+        function getDifficulty(stage) {
+            return {
+                timeLimit: Math.max(30, 120 - (stage - 1) * 5),
+                targetScore: 100 + (stage - 1) * 50,
+                speedMultiplier: 1 + (stage - 1) * 0.1,
+                complexity: Math.min(10, 1 + Math.floor((stage - 1) / 3))
+            };
+        }
+
+        // ========================================
+        // 게임 로직 (여기에 구현)
+        // ========================================
+        let score = 0;
+        let gameRunning = false;
+
+        function startGame() {
+            document.getElementById('test-panel').classList.add('hidden');
+            document.getElementById('game-container').classList.remove('hidden');
+
+            document.getElementById('stage-display').textContent = `Stage ${GameBridge.stage}`;
+            updateScoreDisplay(0);
+
+            const difficulty = getDifficulty(GameBridge.stage);
+            console.log('Difficulty:', difficulty);
+
+            gameRunning = true;
+            // TODO: 게임 시작 로직 구현
+        }
+
+        function updateScoreDisplay(newScore) {
+            score = newScore;
+            document.getElementById('score-display').textContent = `Score: ${score}`;
+            GameBridge.updateScore(score);
+        }
+
+        function endGame(cleared) {
+            gameRunning = false;
+
+            GameBridge.complete({
+                score: score,
+                cleared: cleared,
+                customData: {
+                    // 저장할 추가 데이터
+                }
+            });
+        }
+
+        // ========================================
+        // 테스트 모드 설정
+        // ========================================
+        const isTestMode = !window.AndroidBridge && !window.webkit?.messageHandlers?.iOSBridge;
+
+        if (isTestMode) {
+            document.getElementById('test-start').onclick = function() {
+                const stage = parseInt(document.getElementById('test-stage').value) || 1;
+                const highScore = parseInt(document.getElementById('test-highscore').value) || 0;
+                const customData = document.getElementById('test-customdata').value || '{}';
+
+                GameBridge.onInit({
+                    stage: stage,
+                    highScore: highScore,
+                    customData: customData
+                });
+            };
+        } else {
+            // 앱에서 실행 시 테스트 패널 숨김
+            document.getElementById('test-panel').classList.add('hidden');
+        }
+    </script>
+</body>
+</html>
