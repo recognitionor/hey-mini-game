@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>넘버볼 합치기</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #0d0d1a;
+            overflow: hidden;
+            touch-action: none;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        #game-wrapper {
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        #test-panel {
+            position: fixed;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(10, 10, 30, 0.98);
+            border: 1px solid #2a2a5a;
+            padding: 28px;
+            border-radius: 20px;
+            z-index: 9999;
+            min-width: 300px;
+            color: #fff;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.7);
+        }
+        #test-panel h3 {
+            margin-bottom: 8px; color: #00d4ff;
+            text-align: center; font-size: 22px;
+        }
+        #test-panel p {
+            text-align: center; font-size: 12px; color: #666;
+            margin-bottom: 20px;
+        }
+        #test-panel label {
+            display: block; margin-bottom: 14px;
+            font-size: 13px; color: #aaa;
+        }
+        #test-panel input, #test-panel textarea {
+            width: 100%; padding: 10px; margin-top: 6px;
+            border-radius: 8px; border: 1px solid #2a2a5a;
+            background: #111; color: #fff; font-size: 14px; outline: none;
+        }
+        #test-panel textarea { resize: none; height: 48px; }
+        #test-panel button {
+            width: 100%; padding: 14px; margin-top: 8px;
+            background: linear-gradient(135deg, #00d4ff, #0077cc);
+            color: #000; border: none; border-radius: 10px;
+            font-size: 17px; font-weight: bold; cursor: pointer;
+        }
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+<div id="game-wrapper">
+    <div id="test-panel">
+        <h3>🔢 넘버볼 합치기</h3>
+        <p>같은 숫자 공을 합쳐서 큰 수를 만드세요!</p>
+        <label>스테이지
+            <input type="number" id="test-stage" value="1" min="1" max="20">
+        </label>
+        <label>최고점수
+            <input type="number" id="test-highscore" value="0">
+        </label>
+        <label>커스텀 데이터 (JSON)
+            <textarea id="test-customdata">{}</textarea>
+        </label>
+        <button id="test-start">게임 시작</button>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.60.0/phaser.min.js"></script>
+<script>
+// ============================================================
+// GameBridge
+// ============================================================
+const GameBridge = {
+    stage: 1,
+    highScore: 0,
+    customData: {},
+    onInit(data) {
+        this.stage = data.stage || 1;
+        this.highScore = data.highScore || 0;
+        this.customData = JSON.parse(data.customData || '{}');
+        document.getElementById('test-panel').classList.add('hidden');
+        initGame();
+    },
+    updateScore(score) {
+        if (window.AndroidBridge) AndroidBridge.updateScore(score);
+        else if (window.webkit?.messageHandlers?.iOSBridge)
+            webkit.messageHandlers.iOSBridge.postMessage({ type: 'updateScore', score });
+    },
+    complete(result) {
+        if (window.AndroidBridge) AndroidBridge.gameComplete(JSON.stringify(result));
+        else if (window.webkit?.messageHandlers?.iOSBridge)
+            webkit.messageHandlers.iOSBridge.postMessage({
+                type: 'gameComplete', score: result.score,
+                cleared: result.cleared, customData: JSON.stringify(result.customData || {})
+            });
+        else {
+            alert(`게임 완료!\n점수: ${result.score}\n클리어: ${result.cleared ? '✅ 성공!' : '❌ 실패'}`);
+            location.reload();
+        }
+    },
+    saveData(data) {
+        if (window.AndroidBridge) AndroidBridge.saveData(JSON.stringify(data));
+        else if (window.webkit?.messageHandlers?.iOSBridge)
+            webkit.messageHandlers.iOSBridge.postMessage({ type: 'saveData', data: JSON.stringify(data) });
+    },
+    log(msg) {
+        console.log('[GameBridge]', msg);
+        if (window.AndroidBridge) AndroidBridge.log(msg);
+    }
+};
+
+// ============================================================
+// Ball Config — 11 levels (Suika-style)
+// ============================================================
+const BALLS = [
+    { level: 1,  r: 18,  color: 0xE74C3C, tc: '#ffffff', score: 2   },
+    { level: 2,  r: 25,  color: 0xFF8C00, tc: '#ffffff', score: 6   },
+    { level: 3,  r: 33,  color: 0xF1C40F, tc: '#222222', score: 12  },
+    { level: 4,  r: 41,  color: 0x2ECC71, tc: '#ffffff', score: 20  },
+    { level: 5,  r: 50,  color: 0x1ABC9C, tc: '#ffffff', score: 32  },
+    { level: 6,  r: 59,  color: 0x3498DB, tc: '#ffffff', score: 48  },
+    { level: 7,  r: 67,  color: 0x9B59B6, tc: '#ffffff', score: 68  },
+    { level: 8,  r: 75,  color: 0xE91E63, tc: '#ffffff', score: 92  },
+    { level: 9,  r: 82,  color: 0xFF5722, tc: '#ffffff', score: 120 },
+    { level: 10, r: 89,  color: 0x607D8B, tc: '#ffffff', score: 152 },
+    { level: 11, r: 96,  color: 0xFFD700, tc: '#111111', score: 300 },
+];
+
+// ============================================================
+// Difficulty
+// ============================================================
+function getDifficulty(stage) {
+    return {
+        targetScore: 500 + (stage - 1) * 300,
+        maxDropLevel: Math.min(2 + Math.floor(stage / 2), 6),
+        gravity: 1.2 + (stage - 1) * 0.05,
+    };
+}
+
+// ============================================================
+// Global Game State
+// ============================================================
+const G = {
+    scene: null,
+    balls: [],         // { body, level, cfg, text }
+    score: 0,
+    gameOver: false,
+    canDrop: true,
+    dropX: 200,
+    nextLevel: 1,
+    difficulty: null,
+    // UI
+    scoreText: null,
+    nextGfx: null,
+    nextLabel: null,
+    guideGfx: null,
+    ballGfx: null,
+    dangerFrames: 0,
+};
+
+// ============================================================
+// Game Init
+// ============================================================
+function initGame() {
+    const diff = getDifficulty(GameBridge.stage);
+    G.difficulty = diff;
+    G.score = 0;
+    G.balls = [];
+    G.gameOver = false;
+    G.canDrop = true;
+    G.dangerFrames = 0;
+
+    new Phaser.Game({
+        type: Phaser.AUTO,
+        width: 400,
+        height: 700,
+        backgroundColor: '#0d0d1a',
+        parent: 'game-wrapper',
+        scale: {
+            mode: Phaser.Scale.FIT,
+            autoCenter: Phaser.Scale.CENTER_BOTH,
+        },
+        physics: {
+            default: 'matter',
+            matter: {
+                gravity: { y: diff.gravity },
+                debug: false,
+            }
+        },
+        scene: {
+            create: createScene,
+            update: updateScene,
+        }
+    });
+}
+
+// ============================================================
+// Scene: Create
+// ============================================================
+function createScene() {
+    const s = this;
+    G.scene = s;
+
+    // ── Container visuals ──────────────────────────────
+    // Subtle grid background inside container
+    const grid = s.add.graphics();
+    grid.fillStyle(0x111128, 1);
+    grid.fillRect(20, 110, 360, 580);
+    grid.lineStyle(1, 0x1a1a40, 1);
+    for (let y = 110; y <= 690; y += 35) grid.lineBetween(20, y, 380, y);
+    for (let x = 20; x <= 380; x += 35) grid.lineBetween(x, 110, x, 690);
+
+    // Container border walls (visual)
+    const walls = s.add.graphics();
+    walls.fillStyle(0x2a2a6a, 1);
+    walls.fillRect(14, 110, 8, 582);   // left wall
+    walls.fillRect(378, 110, 8, 582);  // right wall
+    walls.fillRect(14, 688, 372, 8);   // bottom
+
+    // Glow on walls
+    walls.lineStyle(2, 0x4a4aaa, 0.8);
+    walls.strokeRect(14, 110, 372, 582);
+
+    // ── Physics walls (static) ─────────────────────────
+    const wo = { isStatic: true, friction: 0.3, restitution: 0.15, label: 'wall' };
+    s.matter.add.rectangle(200, 696, 368, 10, wo);   // floor
+    s.matter.add.rectangle(15,  400, 10,  580, wo);  // left
+    s.matter.add.rectangle(385, 400, 10,  580, wo);  // right
+
+    // ── Danger line ────────────────────────────────────
+    const dl = s.add.graphics();
+    dl.lineStyle(1, 0xff3333, 0.5);
+    for (let x = 22; x < 378; x += 16) dl.lineBetween(x, 148, x + 8, 148);
+    s.add.text(26, 135, '⚠ 위험선', { fontSize: '10px', color: '#ff4444', fontFamily: 'Arial' });
+
+    // ── Top HUD bar ─────────────────────────────────────
+    const hud = s.add.graphics();
+    hud.fillStyle(0x0a0a20, 0.9);
+    hud.fillRoundedRect(8, 6, 384, 100, 10);
+    hud.lineStyle(1, 0x2a2a6a, 1);
+    hud.strokeRoundedRect(8, 6, 384, 100, 10);
+
+    // Stage label
+    s.add.text(20, 14, `STAGE  ${GameBridge.stage}`, {
+        fontSize: '11px', color: '#00d4ff', fontFamily: 'Arial', fontStyle: 'bold'
+    });
+
+    // Score
+    s.add.text(20, 28, '점수', { fontSize: '11px', color: '#888', fontFamily: 'Arial' });
+    G.scoreText = s.add.text(20, 42, '0', {
+        fontSize: '34px', color: '#ffffff', fontFamily: 'Arial', fontStyle: 'bold'
+    });
+
+    // Target score
+    s.add.text(20, 82, `목표: ${G.difficulty.targetScore}`, {
+        fontSize: '11px', color: '#555', fontFamily: 'Arial'
+    });
+
+    // Divider
+    hud.lineStyle(1, 0x2a2a6a, 1);
+    hud.lineBetween(260, 14, 260, 98);
+
+    // High score
+    s.add.text(268, 14, '최고점수', { fontSize: '11px', color: '#888', fontFamily: 'Arial' });
+    s.add.text(268, 28, String(GameBridge.highScore), {
+        fontSize: '22px', color: '#FFD700', fontFamily: 'Arial', fontStyle: 'bold'
+    });
+
+    // Next ball
+    s.add.text(268, 60, 'NEXT', { fontSize: '11px', color: '#888', fontFamily: 'Arial' });
+    G.nextGfx = s.add.graphics().setDepth(2);
+    G.nextLabel = s.add.text(355, 82, '', {
+        fontSize: '16px', color: '#fff', fontFamily: 'Arial', fontStyle: 'bold'
+    }).setOrigin(0.5).setDepth(3);
+
+    // ── Persistent draw layers ─────────────────────────
+    G.guideGfx = s.add.graphics().setDepth(1);
+    G.ballGfx  = s.add.graphics().setDepth(2);
+
+    // ── First next level ───────────────────────────────
+    G.nextLevel = pickNextLevel(G.difficulty.maxDropLevel);
+    G.dropX = 200;
+    drawNextPreview();
+
+    // ── Input ──────────────────────────────────────────
+    s.input.on('pointermove', (ptr) => {
+        if (G.gameOver) return;
+        const cfg = BALLS[G.nextLevel - 1];
+        G.dropX = Phaser.Math.Clamp(ptr.x, 22 + cfg.r, 378 - cfg.r);
+    });
+
+    s.input.on('pointerup', () => {
+        if (G.gameOver || !G.canDrop) return;
+        dropBall();
+    });
+
+    // ── Collisions ─────────────────────────────────────
+    s.matter.world.on('collisionstart', onCollision);
+}
+
+// ============================================================
+// Scene: Update (every frame)
+// ============================================================
+function updateScene() {
+    if (G.gameOver) return;
+
+    // ── Draw guide line + ghost ball ───────────────────
+    G.guideGfx.clear();
+    if (G.canDrop) {
+        const cfg = BALLS[G.nextLevel - 1];
+        const gx = G.dropX;
+        const gy = 112 + cfg.r;
+
+        // vertical guide
+        G.guideGfx.lineStyle(1, 0xffffff, 0.12);
+        G.guideGfx.lineBetween(gx, 112, gx, 690);
+
+        // ghost ball fill
+        G.guideGfx.fillStyle(cfg.color, 0.28);
+        G.guideGfx.fillCircle(gx, gy, cfg.r);
+
+        // ghost ball ring
+        G.guideGfx.lineStyle(1.5, cfg.color, 0.55);
+        G.guideGfx.strokeCircle(gx, gy, cfg.r);
+    }
+
+    // ── Draw all balls ─────────────────────────────────
+    G.ballGfx.clear();
+    for (const b of G.balls) {
+        if (!b.body || !b.text) continue;
+        const px = b.body.position.x;
+        const py = b.body.position.y;
+        const r  = b.cfg.r;
+
+        // drop shadow
+        G.ballGfx.fillStyle(0x000000, 0.18);
+        G.ballGfx.fillCircle(px + 2, py + 3, r);
+
+        // main ball
+        G.ballGfx.fillStyle(b.cfg.color, 1);
+        G.ballGfx.fillCircle(px, py, r);
+
+        // subtle inner darkened ring
+        G.ballGfx.lineStyle(r * 0.1 + 1, 0x000000, 0.15);
+        G.ballGfx.strokeCircle(px, py, r * 0.82);
+
+        // specular highlight
+        G.ballGfx.fillStyle(0xffffff, 0.28);
+        G.ballGfx.fillCircle(px - r * 0.27, py - r * 0.28, r * 0.3);
+
+        // mini secondary highlight
+        G.ballGfx.fillStyle(0xffffff, 0.10);
+        G.ballGfx.fillCircle(px + r * 0.3, py + r * 0.3, r * 0.15);
+
+        // sync text position
+        b.text.setPosition(px, py);
+    }
+
+    // ── Game over detection ────────────────────────────
+    // A settled ball whose top edge is above the danger line = danger
+    let danger = false;
+    for (const b of G.balls) {
+        if (!b.body || b.body.merged) continue;
+        if (Date.now() - b.body.spawnedAt < 1800) continue; // grace period
+        const vel = b.body.velocity;
+        const speed = Math.abs(vel.x) + Math.abs(vel.y);
+        if (b.body.position.y - b.cfg.r < 148 && speed < 1.0) {
+            danger = true;
+            break;
+        }
+    }
+
+    if (danger) {
+        G.dangerFrames++;
+        if (G.dangerFrames > 80) triggerGameOver(); // ~1.3s at 60fps
+    } else {
+        G.dangerFrames = 0;
+    }
+}
+
+// ============================================================
+// Drop ball
+// ============================================================
+function dropBall() {
+    if (!G.canDrop || G.gameOver) return;
+    G.canDrop = false;
+
+    const level = G.nextLevel;
+    const cfg   = BALLS[level - 1];
+    spawnBall(G.dropX, 114 + cfg.r, level);
+
+    G.nextLevel = pickNextLevel(G.difficulty.maxDropLevel);
+    drawNextPreview();
+
+    G.scene.time.addEvent({
+        delay: 650,
+        callback: () => { if (!G.gameOver) G.canDrop = true; }
+    });
+}
+
+// ============================================================
+// Spawn a ball with Matter.js physics body
+// ============================================================
+function spawnBall(x, y, level) {
+    const cfg  = BALLS[level - 1];
+    const body = G.scene.matter.add.circle(x, y, cfg.r - 1, {
+        restitution: 0.22,
+        friction:    0.45,
+        frictionAir: 0.007,
+        density:     0.0015 + level * 0.00018,
+        label:       'ball',
+    });
+    body.ballLevel  = level;
+    body.merged     = false;
+    body.spawnedAt  = Date.now();
+
+    const fontSize = Math.max(11, Math.floor(cfg.r * 0.70));
+    const text = G.scene.add.text(x, y, String(level), {
+        fontSize:  `${fontSize}px`,
+        color:     cfg.tc,
+        fontFamily:'Arial',
+        fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(4);
+
+    G.balls.push({ body, level, cfg, text });
+    return body;
+}
+
+// ============================================================
+// Remove ball
+// ============================================================
+function removeBall(body) {
+    const idx = G.balls.findIndex(b => b.body === body);
+    if (idx === -1) return;
+    const b = G.balls[idx];
+    b.text?.destroy();
+    G.balls.splice(idx, 1);
+    try { G.scene.matter.world.remove(body); } catch (e) {}
+}
+
+// ============================================================
+// Collision — merge same-level balls
+// ============================================================
+function onCollision(event) {
+    for (const { bodyA, bodyB } of event.pairs) {
+        if (!bodyA.ballLevel || !bodyB.ballLevel) continue;
+        if (bodyA.merged || bodyB.merged)         continue;
+        if (bodyA.ballLevel !== bodyB.ballLevel)  continue;
+        if (bodyA.ballLevel >= 11)                continue;
+
+        bodyA.merged = true;
+        bodyB.merged = true;
+
+        const mx  = (bodyA.position.x + bodyB.position.x) / 2;
+        const my  = (bodyA.position.y + bodyB.position.y) / 2;
+        const lvl = bodyA.ballLevel;
+
+        G.scene.time.addEvent({
+            delay: 50,
+            callback: () => {
+                removeBall(bodyA);
+                removeBall(bodyB);
+                if (G.gameOver) return;
+
+                const newLevel = lvl + 1;
+                spawnBall(mx, my, newLevel);
+
+                const pts = BALLS[lvl - 1].score * 2;
+                addScore(pts);
+                fxMerge(mx, my, BALLS[lvl].color);
+                fxScorePop(mx, my, pts);
+
+                // Check clear condition
+                if (G.score >= G.difficulty.targetScore) {
+                    G.scene.time.addEvent({ delay: 800, callback: () => endGame(true) });
+                }
+            }
+        });
+    }
+}
+
+// ============================================================
+// Score
+// ============================================================
+function addScore(pts) {
+    G.score += pts;
+    G.scoreText.setText(String(G.score));
+    GameBridge.updateScore(G.score);
+}
+
+// ============================================================
+// Effects
+// ============================================================
+function fxMerge(x, y, color) {
+    const g = G.scene.add.graphics().setDepth(8);
+    let frame = 0;
+    const total = 16;
+    G.scene.time.addEvent({
+        delay: 18,
+        repeat: total - 1,
+        callback: () => {
+            frame++;
+            g.clear();
+            const a = (1 - frame / total) * 0.85;
+            const r = 10 + frame * 4.5;
+            g.fillStyle(color, a);
+            g.fillCircle(x, y, r);
+            // ring
+            g.lineStyle(3, 0xffffff, a * 0.5);
+            g.strokeCircle(x, y, r + 4);
+            if (frame >= total) g.destroy();
+        }
+    });
+}
+
+function fxScorePop(x, y, pts) {
+    const pop = G.scene.add.text(x, y - 10, `+${pts}`, {
+        fontSize: '20px', color: '#FFD700', fontFamily: 'Arial', fontStyle: 'bold',
+        stroke: '#000000', strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(10);
+    G.scene.tweens.add({
+        targets:  pop,
+        y:        y - 60,
+        alpha:    0,
+        duration: 750,
+        ease:     'Power2',
+        onComplete: () => pop.destroy(),
+    });
+}
+
+// ============================================================
+// Next ball preview (HUD)
+// ============================================================
+function drawNextPreview() {
+    if (!G.nextGfx) return;
+    G.nextGfx.clear();
+    const cfg = BALLS[G.nextLevel - 1];
+    const pr  = Math.min(cfg.r, 22);
+
+    G.nextGfx.fillStyle(cfg.color, 1);
+    G.nextGfx.fillCircle(355, 82, pr);
+
+    G.nextGfx.fillStyle(0xffffff, 0.24);
+    G.nextGfx.fillCircle(349, 77, pr * 0.32);
+
+    G.nextLabel.setText(String(G.nextLevel));
+    G.nextLabel.setStyle({
+        fontSize:  `${Math.max(10, Math.floor(pr * 0.82))}px`,
+        color:     cfg.tc,
+        fontFamily:'Arial',
+        fontStyle: 'bold',
+    });
+    G.nextLabel.setPosition(355, 82);
+}
+
+// ============================================================
+// Game Over
+// ============================================================
+function triggerGameOver() {
+    if (G.gameOver) return;
+    G.gameOver = true;
+    G.canDrop  = false;
+
+    const s = G.scene;
+
+    // Dark overlay
+    const ov = s.add.graphics().setDepth(20);
+    ov.fillStyle(0x000000, 0.78);
+    ov.fillRect(0, 0, 400, 700);
+
+    // Panel
+    ov.fillStyle(0x0d0d2a, 1);
+    ov.fillRoundedRect(50, 240, 300, 220, 18);
+    ov.lineStyle(2, 0x3a3a8a, 1);
+    ov.strokeRoundedRect(50, 240, 300, 220, 18);
+
+    const cleared = G.score >= G.difficulty.targetScore;
+
+    s.add.text(200, 275, 'GAME OVER', {
+        fontSize: '34px', color: '#ff4444', fontFamily: 'Arial', fontStyle: 'bold',
+        stroke: '#000', strokeThickness: 4,
+    }).setOrigin(0.5).setDepth(21);
+
+    s.add.text(200, 320, `점수: ${G.score}`, {
+        fontSize: '28px', color: '#ffffff', fontFamily: 'Arial', fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(21);
+
+    s.add.text(200, 360, cleared ? '🎉 스테이지 클리어!' : `목표: ${G.difficulty.targetScore}점`, {
+        fontSize: '17px', color: cleared ? '#FFD700' : '#777', fontFamily: 'Arial',
+    }).setOrigin(0.5).setDepth(21);
+
+    s.add.text(200, 430, '잠시 후 결과가 전송됩니다...', {
+        fontSize: '12px', color: '#444', fontFamily: 'Arial',
+    }).setOrigin(0.5).setDepth(21);
+
+    s.time.addEvent({ delay: 3000, callback: () => endGame(cleared) });
+}
+
+function endGame(cleared) {
+    const maxLevel = G.balls.length > 0
+        ? Math.max(...G.balls.map(b => b.level))
+        : 1;
+    GameBridge.complete({
+        score: G.score,
+        cleared,
+        customData: { stage: GameBridge.stage, maxBallLevel: maxLevel }
+    });
+}
+
+// ============================================================
+// Utils
+// ============================================================
+function pickNextLevel(max) {
+    // Weighted random: lower levels are more likely
+    const weights = [];
+    for (let i = 1; i <= max; i++) weights.push(max - i + 2);
+    const total = weights.reduce((a, b) => a + b, 0);
+    let r = Math.random() * total;
+    for (let i = 0; i < weights.length; i++) {
+        r -= weights[i];
+        if (r <= 0) return i + 1;
+    }
+    return 1;
+}
+
+// ============================================================
+// Bootstrap
+// ============================================================
+const isTest = !window.AndroidBridge && !window.webkit?.messageHandlers?.iOSBridge;
+if (isTest) {
+    document.getElementById('test-start').onclick = () => {
+        GameBridge.onInit({
+            stage:      parseInt(document.getElementById('test-stage').value) || 1,
+            highScore:  parseInt(document.getElementById('test-highscore').value) || 0,
+            customData: document.getElementById('test-customdata').value || '{}'
+        });
+    };
+} else {
+    document.getElementById('test-panel').classList.add('hidden');
+}
+</script>
+</body>
+</html>
