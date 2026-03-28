@@ -1,0 +1,1070 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>용사의 각성</title>
+    <style>
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { background:#000010; overflow:hidden; touch-action:none; font-family:-apple-system,sans-serif; }
+        #game-wrapper { width:100vw; height:100vh; display:flex; align-items:center; justify-content:center; }
+        #test-panel {
+            position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+            background:rgba(5,5,20,0.98); border:1px solid #1a1a5a;
+            padding:28px; border-radius:20px; z-index:9999; min-width:300px; color:#fff;
+            box-shadow:0 20px 60px rgba(0,0,0,0.8);
+        }
+        #test-panel h3 { margin-bottom:6px; color:#00d4ff; text-align:center; font-size:22px; }
+        #test-panel p  { text-align:center; font-size:12px; color:#555; margin-bottom:18px; }
+        #test-panel label { display:block; margin-bottom:12px; font-size:13px; color:#aaa; }
+        #test-panel input, #test-panel textarea {
+            width:100%; padding:10px; margin-top:5px; border-radius:8px;
+            border:1px solid #2a2a6a; background:#080818; color:#fff; font-size:14px; outline:none;
+        }
+        #test-panel textarea { resize:none; height:44px; }
+        #test-panel button {
+            width:100%; padding:14px; margin-top:8px;
+            background:linear-gradient(135deg,#00d4ff,#0077cc);
+            color:#000; border:none; border-radius:10px; font-size:17px; font-weight:bold; cursor:pointer;
+        }
+        .hidden { display:none!important; }
+    </style>
+</head>
+<body>
+<div id="game-wrapper">
+    <div id="test-panel">
+        <h3>⚔️ 용사의 각성</h3>
+        <p>4속성 변신 종스크롤 슈팅!</p>
+        <label>스테이지<input type="number" id="test-stage" value="1" min="1" max="20"></label>
+        <label>최고점수<input type="number" id="test-highscore" value="0"></label>
+        <label>커스텀 데이터 (JSON)<textarea id="test-customdata">{}</textarea></label>
+        <button id="test-start">게임 시작</button>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.60.0/phaser.min.js"></script>
+<script>
+// ================================================================
+// GameBridge
+// ================================================================
+const GameBridge = {
+    stage:1, highScore:0, customData:{},
+    onInit(data) {
+        this.stage     = data.stage || 1;
+        this.highScore = data.highScore || 0;
+        this.customData = JSON.parse(data.customData || '{}');
+        document.getElementById('test-panel').classList.add('hidden');
+        initGame();
+    },
+    updateScore(s) {
+        if (window.AndroidBridge) AndroidBridge.updateScore(s);
+        else if (window.webkit?.messageHandlers?.iOSBridge)
+            webkit.messageHandlers.iOSBridge.postMessage({type:'updateScore', score:s});
+    },
+    complete(r) {
+        if (window.AndroidBridge) AndroidBridge.gameComplete(JSON.stringify(r));
+        else if (window.webkit?.messageHandlers?.iOSBridge)
+            webkit.messageHandlers.iOSBridge.postMessage({type:'gameComplete', score:r.score, cleared:r.cleared, customData:JSON.stringify(r.customData||{})});
+        else { alert(`게임 완료!\n점수: ${r.score}\n클리어: ${r.cleared?'✅':'❌'}`); location.reload(); }
+    },
+    log(m) { console.log('[GB]',m); if(window.AndroidBridge) AndroidBridge.log(m); }
+};
+
+// ================================================================
+// Config
+// ================================================================
+const ELEMENTS = [
+    { id:0, name:'화염', sym:'🔥', color:0xFF6B35, hex:'#FF6B35', shotC:0xFF4500 },
+    { id:1, name:'번개', sym:'⚡', color:0xFFE234, hex:'#FFE234', shotC:0xFFCC00 },
+    { id:2, name:'바람', sym:'🌀', color:0x52D3D8, hex:'#52D3D8', shotC:0x00CCCC },
+    { id:3, name:'암흑', sym:'🌑', color:0xBB66FF, hex:'#BB66FF', shotC:0x9933CC },
+];
+const FIRE_RATES  = [480, 320, 200]; // ms between shots per level
+const HERO_SPEED  = 220;
+const ENEMY_CFG = [
+    { hp:1, spd:110, sz:10, score:100, shoot:false, drop:0.30, col:0xCC2200, glow:0xFF4422 },
+    { hp:3, spd:75,  sz:15, score:300, shoot:true,  drop:0.50, col:0xCC6600, glow:0xFF9933 },
+    { hp:6, spd:48,  sz:22, score:600, shoot:true,  drop:0.70, col:0xAA1100, glow:0xFF3300 },
+];
+
+function getDifficulty(stage) {
+    return {
+        targetScore:    3000 + (stage-1) * 2500,
+        waveInterval:   Math.max(1400, 2800 - (stage-1)*200),
+        maxEnemyType:   Math.min(2, Math.floor((stage-1)/2)),
+        extraEnemies:   Math.floor((stage-1)/3),
+        speedMult:      1 + (stage-1)*0.08,
+        eBulletSpeed:   80 + (stage-1)*20,
+        heroHp:         5,
+    };
+}
+
+// ================================================================
+// Global state
+// ================================================================
+const G = {
+    scene:null, diff:null, score:0, gameOver:false,
+    hero: { x:200, y:560, hp:5, maxHp:5, el:0, lv:1, invTimer:0, shootTimer:0, itemCount:0 },
+    bullets:[], eBullets:[], enemies:[], items:[], particles:[],
+    waveTimer:0, waveCount:0,
+    bgStars:[], bgY:0,
+    joy: { active:false, pid:null, bx:85, by:615, kx:85, ky:615, dx:0, dy:0 },
+    // HUD refs
+    scoreTxt:null, hsTxt:null, stageTxt:null, hpTxt:null, elTxt:null, notifyTxt:null,
+    // Graphics layers
+    bgG:null, mainG:null, joySpr:null,
+    notifyTimer:0, notifyMsg:'',
+    bossActive:false,
+};
+
+// ================================================================
+// Init Phaser
+// ================================================================
+function initGame() {
+    const d = getDifficulty(GameBridge.stage);
+    G.diff = d;
+    G.hero.hp = d.heroHp; G.hero.maxHp = d.heroHp;
+
+    new Phaser.Game({
+        type: Phaser.AUTO,
+        width:400, height:700,
+        backgroundColor:'#000010',
+        parent:'game-wrapper',
+        scale: { mode:Phaser.Scale.FIT, autoCenter:Phaser.Scale.CENTER_BOTH },
+        scene: { create: createScene, update: updateScene }
+    });
+}
+
+// ================================================================
+// CREATE
+// ================================================================
+function createScene() {
+    const s = this;
+    G.scene = s;
+
+    // Enable 3-touch support
+    s.input.addPointer(2);
+
+    // Generate starfield (3 layers)
+    G.bgStars = [];
+    const layerCfg = [{n:50, spd:30, r:1, a:0.5}, {n:30, spd:60, r:1.5, a:0.7}, {n:15, spd:100, r:2, a:1}];
+    for (const lc of layerCfg)
+        for (let i = 0; i < lc.n; i++)
+            G.bgStars.push({ x:Math.random()*400, y:Math.random()*700, spd:lc.spd, r:lc.r, a:lc.a });
+
+    // Graphics layers (draw order: bg → main → joy)
+    G.bgG   = s.add.graphics().setDepth(0);
+    G.mainG = s.add.graphics().setDepth(1);
+    G.joySpr = s.add.graphics().setDepth(10);
+
+    // ── HUD ──────────────────────────────────────────────
+    const hudTop = s.add.graphics().setDepth(5);
+    hudTop.fillStyle(0x000020, 0.85);
+    hudTop.fillRect(0, 0, 400, 50);
+    hudTop.lineStyle(1, 0x1a1a6a, 1);
+    hudTop.lineBetween(0, 50, 400, 50);
+
+    s.add.text(12, 8,  'SCORE', {fontSize:'11px', color:'#888', fontFamily:'Arial'}).setDepth(6);
+    G.scoreTxt = s.add.text(12, 22, '0', {fontSize:'22px', color:'#fff', fontFamily:'Arial', fontStyle:'bold'}).setDepth(6);
+
+    s.add.text(160, 8, 'STAGE', {fontSize:'11px', color:'#888', fontFamily:'Arial'}).setOrigin(0.5,0).setDepth(6);
+    G.stageTxt = s.add.text(200, 8, `${GameBridge.stage}`, {fontSize:'24px', color:'#00d4ff', fontFamily:'Arial', fontStyle:'bold'}).setOrigin(0.5,0).setDepth(6);
+
+    s.add.text(388, 8,  'BEST', {fontSize:'11px', color:'#888', fontFamily:'Arial'}).setOrigin(1,0).setDepth(6);
+    G.hsTxt = s.add.text(388, 22, String(GameBridge.highScore), {fontSize:'16px', color:'#FFD700', fontFamily:'Arial', fontStyle:'bold'}).setOrigin(1,0).setDepth(6);
+
+    // Bottom HUD (hp + element, right side)
+    const hudBot = s.add.graphics().setDepth(5);
+    hudBot.fillStyle(0x000020, 0.85);
+    hudBot.fillRect(0, 658, 400, 42);
+    hudBot.lineStyle(1, 0x1a1a6a, 1);
+    hudBot.lineBetween(0, 658, 400, 658);
+
+    G.hpTxt = s.add.text(200, 668, '❤❤❤❤❤', {fontSize:'18px', color:'#ff4455', fontFamily:'Arial'}).setOrigin(0.5,0).setDepth(6);
+    G.elTxt = s.add.text(388, 660, '🔥 Lv.1 ●○○', {fontSize:'14px', color:'#FF6B35', fontFamily:'Arial', fontStyle:'bold'}).setOrigin(1,0).setDepth(6);
+
+    // Notification text (middle of screen)
+    G.notifyTxt = s.add.text(200, 340, '', {
+        fontSize:'28px', color:'#ffffff', fontFamily:'Arial', fontStyle:'bold',
+        stroke:'#000', strokeThickness:4,
+    }).setOrigin(0.5).setDepth(9).setAlpha(0);
+
+    // ── Input ─────────────────────────────────────────────
+    s.input.on('pointerdown', onPtrDown);
+    s.input.on('pointermove', onPtrMove);
+    s.input.on('pointerup',   onPtrUp);
+
+    // ── Init wave timer ───────────────────────────────────
+    G.waveTimer = G.diff.waveInterval * 0.3; // first wave fast
+    G.waveCount = 0;
+
+    // Reset state
+    G.score = 0; G.gameOver = false; G.bossActive = false;
+    G.bullets=[]; G.eBullets=[]; G.enemies=[]; G.items=[]; G.particles=[];
+    G.hero.el=0; G.hero.lv=1; G.hero.itemCount=0;
+    G.hero.invTimer=0; G.hero.shootTimer=0;
+
+    updateHUD();
+}
+
+// ================================================================
+// UPDATE  (called every frame by Phaser)
+// ================================================================
+function updateScene(time, delta) {
+    if (G.gameOver) return;
+    const dt = Math.min(delta, 50); // cap at 50ms to prevent tunneling
+    const t = time;
+
+    // ── Scroll background ─────────────────────────────────
+    G.bgY = (G.bgY + 0.5) % 700;
+
+    // ── Update systems ────────────────────────────────────
+    updateHero(dt);
+    updateBullets(dt);
+    updateEBullets(dt);
+    updateEnemies(dt, t);
+    updateItems(dt);
+    updateParticles(dt);
+
+    // ── Wave spawner ──────────────────────────────────────
+    G.waveTimer -= dt;
+    if (G.waveTimer <= 0) {
+        spawnWave();
+        G.waveTimer = G.diff.waveInterval;
+    }
+
+    // ── Collisions ────────────────────────────────────────
+    checkCollisions();
+
+    // ── Notify text fade ──────────────────────────────────
+    if (G.notifyTimer > 0) {
+        G.notifyTimer -= dt;
+        G.notifyTxt.setAlpha(Math.min(1, G.notifyTimer / 300));
+        if (G.notifyTimer <= 0) G.notifyTxt.setAlpha(0);
+    }
+
+    // ── Draw everything ───────────────────────────────────
+    drawBackground(G.bgG, t);
+    drawMain(G.mainG, t);
+    drawJoystick(G.joySpr);
+
+    // ── Check stage clear ─────────────────────────────────
+    if (G.score >= G.diff.targetScore && !G.gameOver) {
+        triggerEnd(true);
+    }
+}
+
+// ================================================================
+// DRAW — Background
+// ================================================================
+function drawBackground(g, t) {
+    g.clear();
+    g.fillStyle(0x000010, 1);
+    g.fillRect(0, 0, 400, 700);
+
+    // Subtle nebula
+    const nc = 0.04 + 0.01 * Math.sin(t/3000);
+    g.fillStyle(0x110033, nc);
+    g.fillEllipse(100, 200, 200, 150);
+    g.fillStyle(0x001133, nc);
+    g.fillEllipse(300, 500, 180, 130);
+
+    // Scrolling stars (parallax)
+    for (const s of G.bgStars) {
+        const sy = (s.y + G.bgY * (s.spd / 100)) % 700;
+        g.fillStyle(0xffffff, s.a * (0.6 + 0.4 * Math.sin(t/400 + s.x)));
+        g.fillCircle(s.x, sy, s.r);
+    }
+}
+
+// ================================================================
+// DRAW — Main layer (everything else)
+// ================================================================
+function drawMain(g, t) {
+    g.clear();
+    // Draw order: particles → items → enemy bullets → enemies → hero bullets → hero
+    drawParticles(g, t);
+    drawItems(g, t);
+    drawEBullets(g, t);
+    drawEnemies(g, t);
+    drawHeroBullets(g, t);
+    drawHero(g, t);
+}
+
+// ================================================================
+// DRAW — Hero
+// ================================================================
+function drawHero(g, t) {
+    const h = G.hero;
+    // Blink while invincible
+    if (h.invTimer > 0 && Math.floor(t / 80) % 2 === 0) return;
+
+    const el = ELEMENTS[h.el];
+    const c  = el.color;
+    const lv = h.lv;
+    const pulse = 0.5 + 0.5 * Math.sin(t / 280);
+    const x = h.x, y = h.y;
+
+    // ── Level-based aura ─────────────────────────────────
+    if (lv === 3) {
+        g.fillStyle(c, 0.08 + 0.04 * pulse);
+        g.fillCircle(x, y, 46);
+        g.lineStyle(2, c, 0.25 + 0.15 * pulse);
+        g.strokeCircle(x, y, 46);
+        g.lineStyle(1, c, 0.15);
+        g.strokeCircle(x, y, 54);
+    }
+    if (lv >= 2) {
+        g.fillStyle(c, 0.12 + 0.06 * pulse);
+        g.fillCircle(x, y, 30);
+    }
+
+    // ── Wings (level 2+) ─────────────────────────────────
+    if (lv >= 2) {
+        const wa = 0.7 + 0.2 * pulse;
+        g.fillStyle(c, wa);
+        g.fillTriangle(x-10, y-2, x-34, y-18, x-30, y+12);
+        g.fillTriangle(x+10, y-2, x+34, y-18, x+30, y+12);
+        if (lv === 3) {
+            g.fillStyle(c, 0.4 * pulse);
+            g.fillTriangle(x-10, y+8, x-40, y, x-34, y+22);
+            g.fillTriangle(x+10, y+8, x+40, y, x+34, y+22);
+        }
+    }
+
+    // ── Cloak / cape ─────────────────────────────────────
+    g.fillStyle(0x1a2233, 1);
+    g.fillTriangle(x-10, y+14, x+10, y+14, x, y+30);
+
+    // ── Body armor ───────────────────────────────────────
+    g.fillStyle(0x334455, 1);
+    g.fillRect(x-12, y-18, 24, 34);
+
+    // Arms
+    g.fillStyle(0x2a3a4a, 1);
+    g.fillRect(x-18, y-12, 7, 18);
+    g.fillRect(x+11, y-12, 7, 18);
+
+    // Shoulder pads
+    g.fillStyle(c, 0.9);
+    g.fillCircle(x-14, y-13, 5);
+    g.fillCircle(x+14, y-13, 5);
+
+    // Chest plate
+    g.fillStyle(0x445566, 1);
+    g.fillRect(x-8, y-12, 16, 16);
+
+    // Chest emblem (element glow)
+    g.fillStyle(c, 0.85 + 0.1 * pulse);
+    g.fillCircle(x, y-4, 4 + lv);
+    g.lineStyle(1, 0xffffff, 0.3 + 0.2 * pulse);
+    g.strokeCircle(x, y-4, 4 + lv);
+
+    // Waist belt
+    g.fillStyle(0x556677, 1);
+    g.fillRect(x-12, y+12, 24, 5);
+
+    // Head
+    g.fillStyle(0x334455, 1);
+    g.fillCircle(x, y-24, 10);
+
+    // Helmet visor
+    g.fillStyle(c, 0.9);
+    g.fillRect(x-7, y-27, 14, 5);
+
+    // Outline glow
+    g.lineStyle(1.5, c, 0.5 + 0.2 * pulse);
+    g.strokeRect(x-12, y-18, 24, 34);
+}
+
+// ================================================================
+// DRAW — Hero bullets
+// ================================================================
+function drawHeroBullets(g, t) {
+    for (const b of G.bullets) {
+        if (!b.active) continue;
+        const el = ELEMENTS[b.el];
+        switch(b.el) {
+            case 0: // Fire - orange oval
+                g.fillStyle(el.shotC, 0.9);
+                g.fillEllipse(b.x, b.y, 7, 14);
+                g.fillStyle(0xFFAA44, 0.5);
+                g.fillEllipse(b.x, b.y + 6, 4, 8);
+                break;
+            case 1: // Thunder - bright bolt
+                g.lineStyle(3, el.color, 1);
+                g.lineBetween(b.x, b.y-10, b.x, b.y+10);
+                g.lineStyle(6, el.shotC, 0.3);
+                g.lineBetween(b.x, b.y-8, b.x, b.y+8);
+                break;
+            case 2: // Wind - cyan crescent
+                g.lineStyle(3, el.color, 0.9);
+                g.strokeCircle(b.x, b.y, 6);
+                g.fillStyle(el.shotC, 0.6);
+                g.fillCircle(b.x, b.y, 4);
+                break;
+            case 3: // Dark - purple orb with glow
+                g.fillStyle(el.color, 0.25);
+                g.fillCircle(b.x, b.y, 9);
+                g.fillStyle(el.shotC, 1);
+                g.fillCircle(b.x, b.y, 5);
+                g.lineStyle(1, 0xffffff, 0.4);
+                g.strokeCircle(b.x, b.y, 5);
+                break;
+        }
+    }
+}
+
+// ================================================================
+// DRAW — Enemies
+// ================================================================
+function drawEnemies(g, t) {
+    for (const e of G.enemies) {
+        if (!e.active) continue;
+        const cfg = ENEMY_CFG[e.type];
+        const pulse = 0.5 + 0.5 * Math.sin(t / 250 + e.x);
+
+        switch(e.type) {
+            case 0: { // Scout — red triangle
+                g.fillStyle(cfg.col, 1);
+                g.fillTriangle(e.x, e.y + cfg.sz, e.x - cfg.sz, e.y - cfg.sz*0.7, e.x + cfg.sz, e.y - cfg.sz*0.7);
+                g.lineStyle(1.5, cfg.glow, 0.8);
+                g.strokeTriangle(e.x, e.y + cfg.sz, e.x - cfg.sz, e.y - cfg.sz*0.7, e.x + cfg.sz, e.y - cfg.sz*0.7);
+                // Engine glow
+                g.fillStyle(cfg.glow, 0.6 * pulse);
+                g.fillCircle(e.x, e.y - cfg.sz*0.3, 3);
+                break;
+            }
+            case 1: { // Cruiser — diamond
+                const s = cfg.sz;
+                g.fillStyle(cfg.col, 1);
+                g.fillTriangle(e.x, e.y-s, e.x-s, e.y, e.x, e.y+s);
+                g.fillTriangle(e.x, e.y-s, e.x+s, e.y, e.x, e.y+s);
+                g.lineStyle(2, cfg.glow, 0.8);
+                g.strokeTriangle(e.x, e.y-s, e.x-s, e.y, e.x, e.y+s);
+                g.strokeTriangle(e.x, e.y-s, e.x+s, e.y, e.x, e.y+s);
+                g.fillStyle(cfg.glow, 0.5 + 0.3 * pulse);
+                g.fillCircle(e.x, e.y, 5);
+                break;
+            }
+            case 2: { // Bomber — hexagon
+                const s = cfg.sz;
+                g.fillStyle(cfg.col, 1);
+                drawHex(g, e.x, e.y, s);
+                g.lineStyle(2, cfg.glow, 0.7 + 0.2 * pulse);
+                strokeHex(g, e.x, e.y, s);
+                // Engines
+                for (let i = -1; i <= 1; i++) {
+                    g.fillStyle(cfg.glow, 0.4 + 0.3 * pulse);
+                    g.fillCircle(e.x + i * s * 0.55, e.y + s * 0.7, 4);
+                }
+                break;
+            }
+        }
+        // HP bar (for multi-hp enemies)
+        if (e.hp < e.maxHp) {
+            const bw = cfg.sz * 2.2;
+            g.fillStyle(0x222222, 0.8);
+            g.fillRect(e.x - bw/2, e.y - cfg.sz - 8, bw, 4);
+            const hp = e.hp / e.maxHp;
+            g.fillStyle(hp > 0.5 ? 0x00EE44 : (hp > 0.25 ? 0xFFAA00 : 0xFF2222), 1);
+            g.fillRect(e.x - bw/2, e.y - cfg.sz - 8, bw * hp, 4);
+        }
+    }
+}
+
+// ================================================================
+// DRAW — Items
+// ================================================================
+function drawItems(g, t) {
+    for (const it of G.items) {
+        if (!it.active) continue;
+        const el = ELEMENTS[it.el];
+        const rot = (t / 800) * Math.PI * 2;
+        const pulse = 0.5 + 0.5 * Math.sin(t / 350);
+        const r = 10;
+        const cos = Math.cos(rot), sin = Math.sin(rot);
+
+        // Glow
+        g.fillStyle(el.color, 0.1 + 0.07 * pulse);
+        g.fillCircle(it.x, it.y, 20);
+
+        // Ring
+        g.lineStyle(1.5, el.color, 0.4 + 0.3 * pulse);
+        g.strokeCircle(it.x, it.y, 14);
+
+        // Rotating diamond
+        g.fillStyle(el.color, 0.9);
+        g.fillTriangle(it.x + cos*r, it.y + sin*r, it.x - sin*r, it.y + cos*r, it.x - cos*r, it.y - sin*r);
+        g.fillTriangle(it.x + cos*r, it.y + sin*r, it.x + sin*r, it.y - cos*r, it.x - cos*r, it.y - sin*r);
+    }
+}
+
+// ================================================================
+// DRAW — Enemy bullets
+// ================================================================
+function drawEBullets(g) {
+    for (const b of G.eBullets) {
+        if (!b.active) continue;
+        g.fillStyle(0xFF4422, 0.9);
+        g.fillCircle(b.x, b.y, 4);
+        g.fillStyle(0xFFAA88, 0.4);
+        g.fillCircle(b.x, b.y, 7);
+    }
+}
+
+// ================================================================
+// DRAW — Particles
+// ================================================================
+function drawParticles(g) {
+    for (const p of G.particles) {
+        if (!p.active || p.alpha <= 0) continue;
+        g.fillStyle(p.color, p.alpha);
+        g.fillCircle(p.x, p.y, p.r);
+    }
+}
+
+// ================================================================
+// DRAW — Joystick
+// ================================================================
+function drawJoystick(g) {
+    g.clear();
+    const jy = G.joy;
+    // Outer base
+    g.fillStyle(0xffffff, 0.06);
+    g.fillCircle(jy.bx, jy.by, 52);
+    g.lineStyle(2, 0xffffff, 0.18);
+    g.strokeCircle(jy.bx, jy.by, 52);
+
+    // Direction arrows (subtle)
+    g.lineStyle(1, 0xffffff, 0.12);
+    g.lineBetween(jy.bx, jy.by-36, jy.bx, jy.by-44);
+    g.lineBetween(jy.bx, jy.by+36, jy.bx, jy.by+44);
+    g.lineBetween(jy.bx-36, jy.by, jy.bx-44, jy.by);
+    g.lineBetween(jy.bx+36, jy.by, jy.bx+44, jy.by);
+
+    // Inner knob
+    const alpha = jy.active ? 0.55 : 0.35;
+    g.fillStyle(0xffffff, alpha);
+    g.fillCircle(jy.kx, jy.ky, 22);
+    g.lineStyle(2, 0xffffff, alpha + 0.1);
+    g.strokeCircle(jy.kx, jy.ky, 22);
+    // Knob center dot
+    g.fillStyle(0xffffff, alpha + 0.2);
+    g.fillCircle(jy.kx, jy.ky, 6);
+}
+
+// ================================================================
+// LOGIC — Hero
+// ================================================================
+function updateHero(dt) {
+    const h = G.hero;
+    const j = G.joy;
+
+    // Movement from joystick
+    if (j.active) {
+        h.x += j.dx * HERO_SPEED * dt / 1000;
+        h.y += j.dy * HERO_SPEED * dt / 1000;
+    }
+    h.x = Phaser.Math.Clamp(h.x, 20, 380);
+    h.y = Phaser.Math.Clamp(h.y, 55, 650);
+
+    // Invincibility timer
+    if (h.invTimer > 0) h.invTimer -= dt;
+
+    // Auto-shoot
+    const rate = FIRE_RATES[h.lv - 1];
+    h.shootTimer -= dt;
+    if (h.shootTimer <= 0) {
+        h.shootTimer = rate;
+        fireBullets();
+    }
+}
+
+// ================================================================
+// LOGIC — Fire bullets
+// ================================================================
+function fireBullets() {
+    const h = G.hero;
+    const sp = (spd) => spd + h.lv * 20;
+
+    const fire = (ox, oy, vx, vy) => {
+        if (G.bullets.length > 40) return;
+        G.bullets.push({ x: h.x+ox, y: h.y-22+oy, vx, vy, el: h.el, active: true, homing: false, life:1800 });
+    };
+    const fireHoming = (ox, oy) => {
+        if (G.bullets.length > 40) return;
+        G.bullets.push({ x: h.x+ox, y: h.y-22+oy, vx:0, vy:-260, el: h.el, active: true, homing: true, life:2200 });
+    };
+
+    switch(h.el) {
+        case 0: // 화염 — forward spread
+            if (h.lv===1) fire(0,0, 0,-460);
+            if (h.lv===2) { fire(-10,2, 0,-445); fire(10,2, 0,-445); }
+            if (h.lv===3) {
+                fire(0,0, 0,-470); fire(-14,4,-40,-455); fire(14,4,40,-455);
+                fire(-24,8,-80,-430); fire(24,8,80,-430);
+            }
+            break;
+        case 1: // 번개 — fast linear
+            if (h.lv===1) fire(0,0, 0,-740);
+            if (h.lv===2) { fire(-8,0, 0,-760); fire(8,0, 0,-760); }
+            if (h.lv===3) { fire(-16,0, 0,-780); fire(0,0, 0,-780); fire(16,0, 0,-780); }
+            break;
+        case 2: // 바람 — wide spread
+            if (h.lv===1) fire(0,0, 0,-380);
+            if (h.lv===2) { fire(-5,0,-55,-365); fire(0,0, 0,-375); fire(5,0,55,-365); }
+            if (h.lv===3) {
+                for (let a = -40; a <= 40; a += 20)
+                    fire(0,0, Math.sin(a*Math.PI/180)*370, -Math.cos(a*Math.PI/180)*370);
+                fire(-8,15,-60,200); fire(8,15,60,200); // rear shots
+            }
+            break;
+        case 3: // 암흑 — homing orbs
+            if (h.lv===1) fire(0,0, 0,-280);
+            if (h.lv===2) { fire(-12,2,-25,-270); fire(12,2,25,-270); }
+            if (h.lv===3) { fireHoming(0,0); fireHoming(-14,4); fireHoming(14,4); }
+            break;
+    }
+}
+
+// ================================================================
+// LOGIC — Update hero bullets
+// ================================================================
+function updateBullets(dt) {
+    for (const b of G.bullets) {
+        if (!b.active) continue;
+
+        // Homing (dark lv3)
+        if (b.homing && G.enemies.length > 0) {
+            let best = null, bd = 350;
+            for (const e of G.enemies) {
+                if (!e.active) continue;
+                const d = Math.hypot(e.x-b.x, e.y-b.y);
+                if (d < bd) { bd = d; best = e; }
+            }
+            if (best) {
+                const ang = Math.atan2(best.y-b.y, best.x-b.x);
+                const cur = Math.atan2(b.vy, b.vx);
+                let diff = ang - cur;
+                while (diff > Math.PI)  diff -= 2*Math.PI;
+                while (diff < -Math.PI) diff += 2*Math.PI;
+                const turn = Math.min(Math.abs(diff), 4 * dt/1000) * Math.sign(diff);
+                const spd  = Math.hypot(b.vx, b.vy) || 280;
+                const na   = cur + turn;
+                b.vx = Math.cos(na) * spd;
+                b.vy = Math.sin(na) * spd;
+            }
+        }
+
+        b.x += b.vx * dt/1000;
+        b.y += b.vy * dt/1000;
+        b.life -= dt;
+        if (b.life <= 0 || b.y < -20 || b.y > 720 || b.x < -20 || b.x > 420) b.active = false;
+    }
+    cleanArray(G.bullets);
+}
+
+// ================================================================
+// LOGIC — Update enemy bullets
+// ================================================================
+function updateEBullets(dt) {
+    for (const b of G.eBullets) {
+        if (!b.active) continue;
+        b.x += b.vx * dt/1000;
+        b.y += b.vy * dt/1000;
+        if (b.y > 720 || b.y < -20 || b.x < -20 || b.x > 420) b.active = false;
+    }
+    cleanArray(G.eBullets);
+}
+
+// ================================================================
+// LOGIC — Update enemies
+// ================================================================
+function updateEnemies(dt, t) {
+    for (const e of G.enemies) {
+        if (!e.active) continue;
+
+        // Movement patterns
+        switch(e.moveType) {
+            case 0: // straight down
+                e.y += e.spd * dt/1000;
+                break;
+            case 1: // sine zigzag
+                e.y += e.spd * dt/1000;
+                e.x += Math.sin(t/400 + e.phase) * 1.5;
+                break;
+            case 2: // dive toward player then straight
+                if (e.y < 150) {
+                    const dx = G.hero.x - e.x;
+                    e.x += dx * 0.8 * dt/1000;
+                    e.y += e.spd * 0.6 * dt/1000;
+                } else {
+                    e.y += e.spd * dt/1000;
+                }
+                break;
+        }
+
+        // Shoot at player
+        if (e.shootTimer !== undefined) {
+            e.shootTimer -= dt;
+            if (e.shootTimer <= 0 && e.y > 80 && e.y < 600) {
+                e.shootTimer = e.shootInterval;
+                enemyShoot(e);
+            }
+        }
+
+        // Out of bounds
+        if (e.y > 730 || e.x < -50 || e.x > 450) e.active = false;
+    }
+    cleanArray(G.enemies);
+}
+
+// ================================================================
+// LOGIC — Enemy shoot
+// ================================================================
+function enemyShoot(e) {
+    if (G.eBullets.length > 25) return;
+    const dx = G.hero.x - e.x;
+    const dy = G.hero.y - e.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist === 0) return;
+    const spd = G.diff.eBulletSpeed + 80;
+    G.eBullets.push({ x:e.x, y:e.y, vx:(dx/dist)*spd, vy:(dy/dist)*spd, active:true });
+}
+
+// ================================================================
+// LOGIC — Update items
+// ================================================================
+function updateItems(dt) {
+    for (const it of G.items) {
+        if (!it.active) continue;
+        it.y += 60 * dt/1000;
+        it.x += Math.sin(it.phase + it.y/50) * 0.4;
+        if (it.y > 720) it.active = false;
+    }
+    cleanArray(G.items);
+}
+
+// ================================================================
+// LOGIC — Particles
+// ================================================================
+function updateParticles(dt) {
+    for (const p of G.particles) {
+        if (!p.active) continue;
+        p.x += p.vx * dt/1000;
+        p.y += p.vy * dt/1000;
+        p.vx *= 0.96;
+        p.vy *= 0.96;
+        p.alpha -= dt / p.life;
+        if (p.alpha <= 0) p.active = false;
+    }
+    cleanArray(G.particles);
+}
+
+function spawnExplosion(x, y, color, n=8) {
+    for (let i=0; i<n; i++) {
+        const a = (i/n)*Math.PI*2 + Math.random()*0.4;
+        const spd = 70 + Math.random()*130;
+        G.particles.push({ x, y, vx:Math.cos(a)*spd, vy:Math.sin(a)*spd,
+            r:2+Math.random()*3, alpha:1, color, life:500+Math.random()*300, active:true });
+    }
+}
+
+function spawnItemEffect(x, y, color) {
+    for (let i=0; i<12; i++) {
+        const a = Math.random()*Math.PI*2;
+        const spd = 40 + Math.random()*80;
+        G.particles.push({ x, y, vx:Math.cos(a)*spd, vy:Math.sin(a)*spd,
+            r:2+Math.random()*2, alpha:1, color, life:400+Math.random()*200, active:true });
+    }
+}
+
+// ================================================================
+// LOGIC — Spawn wave
+// ================================================================
+function spawnWave() {
+    const d = G.diff;
+    const wc = G.waveCount++;
+    const maxType = Math.min(ENEMY_CFG.length-1, d.maxEnemyType);
+
+    let count = 2 + Math.floor(Math.random()*3) + d.extraEnemies;
+    const type = wc === 0 ? 0 : Math.floor(Math.random()*(maxType+1));
+    const cfg  = ENEMY_CFG[type];
+
+    // Formation patterns
+    const pattern = wc % 4;
+    for (let i = 0; i < count; i++) {
+        let x;
+        if (pattern === 0) x = 30 + Math.random() * 340;           // random
+        else if (pattern === 1) x = 40 + (320/(count-1||1)) * i;   // row
+        else if (pattern === 2) x = 200 + Math.sin(i/(count)*Math.PI*2)*150; // arc
+        else x = 200 + (i % 2 === 0 ? -1:1) * (30 + i*15);        // V shape
+
+        const moveType = wc < 3 ? 0 : Math.floor(Math.random()*3);
+
+        const e = {
+            x, y: -30 - i*35,
+            spd: cfg.spd * d.speedMult,
+            type, hp: cfg.hp, maxHp: cfg.hp,
+            active: true, phase: Math.random()*Math.PI*2,
+            moveType,
+        };
+        if (cfg.shoot) {
+            e.shootTimer = 500 + Math.random()*1000;
+            e.shootInterval = 1400 + Math.random()*600;
+        }
+        G.enemies.push(e);
+    }
+}
+
+// ================================================================
+// LOGIC — Collisions
+// ================================================================
+function checkCollisions() {
+    const h = G.hero;
+
+    // Hero bullets → enemies
+    for (const b of G.bullets) {
+        if (!b.active) continue;
+        for (const e of G.enemies) {
+            if (!e.active) continue;
+            const cfg = ENEMY_CFG[e.type];
+            if (Math.hypot(b.x-e.x, b.y-e.y) < cfg.sz + 5) {
+                b.active = false;
+                e.hp -= (b.el === 0 ? 1 : (b.el === 3 ? 2 : 1));
+                spawnExplosion(b.x, b.y, ELEMENTS[b.el].color, 5);
+                if (e.hp <= 0) killEnemy(e);
+                break;
+            }
+        }
+    }
+
+    // Enemy bullets → hero
+    if (h.invTimer <= 0) {
+        for (const b of G.eBullets) {
+            if (!b.active) continue;
+            if (Math.hypot(b.x-h.x, b.y-h.y) < 14) {
+                b.active = false;
+                hitHero();
+                break;
+            }
+        }
+    }
+
+    // Enemies → hero (collision damage)
+    if (h.invTimer <= 0) {
+        for (const e of G.enemies) {
+            if (!e.active) continue;
+            const cfg = ENEMY_CFG[e.type];
+            if (Math.hypot(e.x-h.x, e.y-h.y) < cfg.sz + 12) {
+                killEnemy(e);
+                hitHero();
+            }
+        }
+    }
+
+    // Items → hero
+    for (const it of G.items) {
+        if (!it.active) continue;
+        if (Math.hypot(it.x-h.x, it.y-h.y) < 26) {
+            it.active = false;
+            collectItem(it.el);
+            spawnItemEffect(it.x, it.y, ELEMENTS[it.el].color);
+        }
+    }
+}
+
+function killEnemy(e) {
+    const cfg = ENEMY_CFG[e.type];
+    e.active = false;
+    addScore(cfg.score);
+    spawnExplosion(e.x, e.y, cfg.glow, 6 + e.type * 4);
+    // Drop item?
+    if (Math.random() < cfg.drop) {
+        G.items.push({ x:e.x, y:e.y, el:Math.floor(Math.random()*4), active:true, phase:Math.random()*Math.PI*2 });
+    }
+}
+
+function hitHero() {
+    const h = G.hero;
+    h.hp--;
+    h.invTimer = 1800;
+    spawnExplosion(h.x, h.y, 0xFF2222, 10);
+    updateHUD();
+    if (h.hp <= 0) triggerEnd(false);
+}
+
+function collectItem(el) {
+    const h = G.hero;
+    if (el === h.el) {
+        // Same element → level up (max 3)
+        if (h.lv < 3) {
+            h.lv++;
+            h.itemCount = 0;
+            const el = ELEMENTS[h.el];
+            showNotify(h.lv === 3 ? `🌟 MAX POWER!` : `${el.sym} LV.${h.lv}!`, el.hex);
+            if (h.lv === 3) spawnExplosion(h.x, h.y, ELEMENTS[h.el].color, 20);
+        } else {
+            // Already max — bonus score
+            addScore(200);
+            showNotify(`✨ MAX BONUS!`, ELEMENTS[h.el].hex);
+        }
+    } else {
+        // Different element → transform to lv1
+        h.el = el;
+        h.lv = 1;
+        h.itemCount = 0;
+        const newEl = ELEMENTS[h.el];
+        showNotify(`${newEl.sym} 변신!`, newEl.hex);
+    }
+    addScore(50);
+    updateHUD();
+}
+
+// ================================================================
+// HUD
+// ================================================================
+function addScore(pts) {
+    G.score += pts;
+    G.scoreTxt.setText(String(G.score));
+    GameBridge.updateScore(G.score);
+}
+
+function updateHUD() {
+    const h = G.hero;
+    const el = ELEMENTS[h.el];
+    const hearts = '❤'.repeat(h.hp) + '♡'.repeat(Math.max(0, h.maxHp - h.hp));
+    G.hpTxt.setText(hearts);
+    G.elTxt.setText(`${el.sym} Lv.${h.lv}  ${'●'.repeat(h.lv)}${'○'.repeat(3-h.lv)}`);
+    G.elTxt.setStyle({ fontSize:'14px', color:el.hex, fontFamily:'Arial', fontStyle:'bold' });
+}
+
+function showNotify(msg, color) {
+    G.notifyTxt.setText(msg);
+    G.notifyTxt.setStyle({ fontSize:'26px', color, fontFamily:'Arial', fontStyle:'bold', stroke:'#000', strokeThickness:4 });
+    G.notifyTxt.setAlpha(1);
+    G.notifyTimer = 1200;
+}
+
+// ================================================================
+// Game End
+// ================================================================
+function triggerEnd(cleared) {
+    if (G.gameOver) return;
+    G.gameOver = true;
+
+    const s = G.scene;
+
+    const ov = s.add.graphics().setDepth(20);
+    ov.fillStyle(0x000000, 0.78);
+    ov.fillRect(0, 0, 400, 700);
+    ov.fillStyle(0x050518, 1);
+    ov.fillRoundedRect(50, 250, 300, 200, 18);
+    ov.lineStyle(2, cleared ? 0xFFD700 : 0x3a3a8a, 1);
+    ov.strokeRoundedRect(50, 250, 300, 200, 18);
+
+    s.add.text(200, 280, cleared ? '🎉 CLEAR!' : '💀 GAME OVER', {
+        fontSize:'32px', color: cleared ? '#FFD700' : '#ff4444',
+        fontFamily:'Arial', fontStyle:'bold', stroke:'#000', strokeThickness:4
+    }).setOrigin(0.5).setDepth(21);
+
+    s.add.text(200, 330, `점수: ${G.score}`, {
+        fontSize:'26px', color:'#fff', fontFamily:'Arial', fontStyle:'bold'
+    }).setOrigin(0.5).setDepth(21);
+
+    s.add.text(200, 370, `목표: ${G.diff.targetScore}`, {
+        fontSize:'15px', color: cleared ? '#88FF88' : '#777', fontFamily:'Arial'
+    }).setOrigin(0.5).setDepth(21);
+
+    s.add.text(200, 400, cleared ? '다음 스테이지로 이동합니다!' : '다시 도전해보세요!', {
+        fontSize:'13px', color:'#aaa', fontFamily:'Arial'
+    }).setOrigin(0.5).setDepth(21);
+
+    const el = ELEMENTS[G.hero.el];
+    s.add.text(200, 428, `최종 속성: ${el.sym} ${el.name} Lv.${G.hero.lv}`, {
+        fontSize:'13px', color:el.hex, fontFamily:'Arial', fontStyle:'bold'
+    }).setOrigin(0.5).setDepth(21);
+
+    s.time.addEvent({ delay:3000, callback:()=>endGame(cleared) });
+}
+
+function endGame(cleared) {
+    GameBridge.complete({
+        score: G.score, cleared,
+        customData: { stage:GameBridge.stage, element:G.hero.el, level:G.hero.lv }
+    });
+}
+
+// ================================================================
+// Joystick input
+// ================================================================
+function onPtrDown(ptr) {
+    const j = G.joy;
+    if (!j.active) {
+        if (Math.hypot(ptr.x-j.bx, ptr.y-j.by) < 85) {
+            j.active = true; j.pid = ptr.id;
+            moveKnob(ptr);
+        }
+    }
+}
+function onPtrMove(ptr) {
+    if (!G.joy.active || ptr.id !== G.joy.pid) return;
+    moveKnob(ptr);
+}
+function onPtrUp(ptr) {
+    if (ptr.id !== G.joy.pid) return;
+    const j = G.joy;
+    j.active = false; j.kx = j.bx; j.ky = j.by; j.dx = 0; j.dy = 0;
+}
+function moveKnob(ptr) {
+    const j = G.joy;
+    const dx = ptr.x - j.bx, dy = ptr.y - j.by;
+    const dist = Math.hypot(dx, dy);
+    const r = 50;
+    if (dist > r) { j.kx = j.bx + dx/dist*r; j.ky = j.by + dy/dist*r; j.dx = dx/dist; j.dy = dy/dist; }
+    else { j.kx = ptr.x; j.ky = ptr.y; j.dx = dx/r; j.dy = dy/r; }
+}
+
+// ================================================================
+// Helpers
+// ================================================================
+function drawHex(g, x, y, r) {
+    const pts = [];
+    for (let i=0; i<6; i++) {
+        const a = i/6 * Math.PI*2 - Math.PI/6;
+        pts.push(new Phaser.Geom.Point(x + Math.cos(a)*r, y + Math.sin(a)*r));
+    }
+    g.fillPoints(pts, true);
+}
+function strokeHex(g, x, y, r) {
+    const pts = [];
+    for (let i=0; i<6; i++) {
+        const a = i/6 * Math.PI*2 - Math.PI/6;
+        pts.push(new Phaser.Geom.Point(x + Math.cos(a)*r, y + Math.sin(a)*r));
+    }
+    g.strokePoints(pts, true);
+}
+function cleanArray(arr) {
+    let i = arr.length;
+    while (i--) if (!arr[i].active) arr.splice(i,1);
+}
+
+// ================================================================
+// Bootstrap
+// ================================================================
+const isTest = !window.AndroidBridge && !window.webkit?.messageHandlers?.iOSBridge;
+if (isTest) {
+    document.getElementById('test-start').onclick = () => {
+        GameBridge.onInit({
+            stage:     parseInt(document.getElementById('test-stage').value) || 1,
+            highScore: parseInt(document.getElementById('test-highscore').value) || 0,
+            customData:document.getElementById('test-customdata').value || '{}'
+        });
+    };
+} else {
+    document.getElementById('test-panel').classList.add('hidden');
+}
+</script>
+</body>
+</html>
