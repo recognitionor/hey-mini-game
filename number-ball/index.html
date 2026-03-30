@@ -307,7 +307,10 @@ function createScene() {
     });
 
     // ── Collisions ─────────────────────────────────────
-    s.matter.world.on('collisionstart', onCollision);
+    // collisionstart: 처음 닿는 순간
+    // collisionactive: 매 프레임 접촉 유지 중 (이미 붙어있던 공 합치기 처리)
+    s.matter.world.on('collisionstart',  onCollision);
+    s.matter.world.on('collisionactive', onCollision);
 }
 
 // ============================================================
@@ -419,12 +422,13 @@ function spawnBall(x, y, level) {
         restitution: 0.22,
         friction:    0.45,
         frictionAir: 0.007,
-        density:     0.0015 + level * 0.00018,
+        mass:        2.5,   // 모든 공 동일 질량 (크기와 무관)
         label:       'ball',
     });
     body.ballLevel  = level;
     body.merged     = false;
     body.spawnedAt  = Date.now();
+    body.hasLanded  = false; // 바닥/벽에 닿기 전까지 합치기 불가
 
     const fontSize = Math.max(11, Math.floor(cfg.r * 0.70));
     const text = G.scene.add.text(x, y, String(level), {
@@ -455,10 +459,24 @@ function removeBall(body) {
 // ============================================================
 function onCollision(event) {
     for (const { bodyA, bodyB } of event.pairs) {
+        // 1단계: 바닥/벽 접촉 → hasLanded 설정
+        if (bodyA.ballLevel && !bodyB.ballLevel) bodyA.hasLanded = true;
+        if (bodyB.ballLevel && !bodyA.ballLevel) bodyB.hasLanded = true;
+
         if (!bodyA.ballLevel || !bodyB.ballLevel) continue;
+
+        // 2단계: 착지한 공에 닿은 공도 hasLanded 전파
+        // (바닥 대신 다른 공 위에 쌓인 경우 처리)
+        if (bodyA.hasLanded) bodyB.hasLanded = true;
+        if (bodyB.hasLanded) bodyA.hasLanded = true;
+
         if (bodyA.merged || bodyB.merged)         continue;
         if (bodyA.ballLevel !== bodyB.ballLevel)  continue;
         if (bodyA.ballLevel >= 11)                continue;
+
+        // 3단계: 더 최근에 스폰된 공이 착지했을 때만 합치기 허용
+        const newerBody = bodyA.spawnedAt >= bodyB.spawnedAt ? bodyA : bodyB;
+        if (!newerBody.hasLanded) continue;
 
         bodyA.merged = true;
         bodyB.merged = true;
@@ -470,17 +488,22 @@ function onCollision(event) {
         G.scene.time.addEvent({
             delay: 50,
             callback: () => {
-                removeBall(bodyA);
-                removeBall(bodyB);
                 if (G.gameOver) return;
 
+                removeBall(bodyA);
+                removeBall(bodyB);
+
                 const newLevel = lvl + 1;
-                spawnBall(mx, my, newLevel);
+                const newR = BALLS[newLevel - 1].r;
+                // 새 공 스폰 위치를 컨테이너 안으로 클램핑 (X, Y 모두)
+                const safeX = Math.max(20 + newR + 1, Math.min(mx, 380 - newR - 1));
+                const safeY = Math.max(114 + newR, Math.min(my, 691 - newR - 1));
+                spawnBall(safeX, safeY, newLevel);
 
                 const pts = BALLS[lvl - 1].score * 2;
                 addScore(pts);
-                fxMerge(mx, my, BALLS[lvl].color);
-                fxScorePop(mx, my, pts);
+                fxMerge(safeX, safeY, BALLS[lvl].color);
+                fxScorePop(safeX, safeY, pts);
 
                 // Check clear condition
                 if (G.score >= G.difficulty.targetScore) {
