@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>스네이크 게임</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #0d0d1a;
+        }
+        body {
+            background: #0d0d1a;
+            touch-action: none;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        #game-wrapper {
+            position: fixed;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+        #test-panel {
+            position: fixed;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(10, 10, 30, 0.98);
+            border: 1px solid #2a2a5a;
+            padding: 28px;
+            border-radius: 20px;
+            z-index: 9999;
+            min-width: 300px;
+            color: #fff;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.7);
+        }
+        #test-panel h3 {
+            margin-bottom: 8px; color: #00ff88;
+            text-align: center; font-size: 22px;
+        }
+        #test-panel p {
+            text-align: center; font-size: 12px; color: #666;
+            margin-bottom: 20px;
+        }
+        #test-panel label {
+            display: block; margin-bottom: 14px;
+            font-size: 13px; color: #aaa;
+        }
+        #test-panel input, #test-panel textarea {
+            width: 100%; padding: 10px; margin-top: 6px;
+            border-radius: 8px; border: 1px solid #2a2a5a;
+            background: #111; color: #fff; font-size: 14px; outline: none;
+        }
+        #test-panel textarea { resize: none; height: 48px; }
+        #test-panel button {
+            width: 100%; padding: 14px; margin-top: 8px;
+            background: linear-gradient(135deg, #00ff88, #00cc66);
+            color: #000; border: none; border-radius: 10px;
+            font-size: 17px; font-weight: bold; cursor: pointer;
+        }
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+<div id="game-wrapper">
+    <div id="test-panel">
+        <h3>🐍 스네이크</h3>
+        <p>벽에 부딪히지 말고 최대한 많이 먹으세요!</p>
+        <label>스테이지
+            <input type="number" id="test-stage" value="1" min="1" max="20">
+        </label>
+        <label>최고점수
+            <input type="number" id="test-highscore" value="0">
+        </label>
+        <label>커스텀 데이터 (JSON)
+            <textarea id="test-customdata">{}</textarea>
+        </label>
+        <button id="test-start">게임 시작</button>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.60.0/phaser.min.js"></script>
+<script>
+// ============================================================
+// GameBridge
+// ============================================================
+const GameBridge = {
+    stage: 1,
+    highScore: 0,
+    customData: {},
+    onInit(data) {
+        this.stage = data.stage || 1;
+        this.highScore = data.highScore || 0;
+        this.customData = JSON.parse(data.customData || '{}');
+        document.getElementById('test-panel').classList.add('hidden');
+        initGame();
+    },
+    updateScore(score) {
+        if (window.AndroidBridge) AndroidBridge.updateScore(score);
+        else if (window.webkit?.messageHandlers?.iOSBridge)
+            webkit.messageHandlers.iOSBridge.postMessage({ type: 'updateScore', score });
+    },
+    complete(result) {
+        if (window.AndroidBridge) AndroidBridge.gameComplete(JSON.stringify(result));
+        else if (window.webkit?.messageHandlers?.iOSBridge)
+            webkit.messageHandlers.iOSBridge.postMessage({
+                type: 'gameComplete', score: result.score,
+                cleared: result.cleared, customData: JSON.stringify(result.customData || {})
+            });
+        else {
+            alert(`게임 완료!\n점수: ${result.score}\n클리어: ${result.cleared ? '✅ 성공!' : '❌ 실패'}`);
+            location.reload();
+        }
+    },
+    saveData(data) {
+        if (window.AndroidBridge) AndroidBridge.saveData(JSON.stringify(data));
+        else if (window.webkit?.messageHandlers?.iOSBridge)
+            webkit.messageHandlers.iOSBridge.postMessage({ type: 'saveData', data: JSON.stringify(data) });
+    },
+    log(msg) {
+        console.log('[GameBridge]', msg);
+        if (window.AndroidBridge) AndroidBridge.log(msg);
+    }
+};
+window.GameBridge = GameBridge;
+
+// ============================================================
+// Layout Constants
+// ============================================================
+const CANVAS_W  = 400;
+const CANVAS_H  = 700;
+const GRID_COLS = 20;
+const GRID_ROWS = 20;
+
+const HUD_H       = 118;   // pixels reserved for the top HUD
+const GRID_MARGIN = 10;    // horizontal margin on each side
+const GRID_TOP    = HUD_H + GRID_MARGIN + 2;  // top-left y of grid
+
+const CELL = Math.floor((CANVAS_W - GRID_MARGIN * 2) / GRID_COLS); // 19
+
+const GRID_PX_W = CELL * GRID_COLS;   // 380
+const GRID_PX_H = CELL * GRID_ROWS;   // 380
+
+const GRID_X = GRID_MARGIN;           // 10
+const GRID_Y = GRID_TOP;              // 130
+
+// ============================================================
+// Difficulty
+// ============================================================
+function getDifficulty(stage) {
+    const speed       = Math.max(80, 230 - (stage - 1) * 15);  // ms per step
+    const targetScore = 100 + (stage - 1) * 80;
+    const timeLimit   = Math.max(45, 120 - (stage - 1) * 5);
+    return { speed, targetScore, timeLimit };
+}
+
+// ============================================================
+// Global State
+// ============================================================
+const G = {
+    scene:       null,
+    snake:       [],        // [{ col, row }, ...] — head first
+    dir:         { x: 1, y: 0 },
+    nextDir:     { x: 1, y: 0 },
+    food:        { col: 15, row: 10 },
+    score:       0,
+    gameOver:    false,
+    difficulty:  null,
+    timeLeft:    0,
+    moveTimer:   null,
+    foodScale:   1.0,
+    // Graphics
+    bgGfx:       null,
+    snakeGfx:    null,
+    foodGfx:     null,
+    // HUD text refs
+    scoreText:   null,
+    timerText:   null,
+    // Touch
+    touchStartX: 0,
+    touchStartY: 0,
+};
+
+// ============================================================
+// Bootstrap: start a Phaser game
+// ============================================================
+function initGame() {
+    const diff    = getDifficulty(GameBridge.stage);
+    G.difficulty  = diff;
+    G.score       = 0;
+    G.gameOver    = false;
+    G.timeLeft    = diff.timeLimit;
+
+    // Initial snake — 3 segments, heading right, vertically centered
+    const midRow = Math.floor(GRID_ROWS / 2);
+    G.snake   = [
+        { col: 5, row: midRow },
+        { col: 4, row: midRow },
+        { col: 3, row: midRow },
+    ];
+    G.dir     = { x: 1, y: 0 };
+    G.nextDir = { x: 1, y: 0 };
+    placeFood();
+
+    new Phaser.Game({
+        type:            Phaser.AUTO,
+        width:           CANVAS_W,
+        height:          CANVAS_H,
+        backgroundColor: '#0d0d1a',
+        parent:          'game-wrapper',
+        scale: {
+            mode:       Phaser.Scale.FIT,
+            autoCenter: Phaser.Scale.CENTER_BOTH,
+        },
+        scene: {
+            create: createScene,
+            update: updateScene,
+        }
+    });
+}
+
+// ============================================================
+// Scene: Create
+// ============================================================
+function createScene() {
+    const s  = this;
+    G.scene  = s;
+
+    // ── Graphics layers ────────────────────────────────
+    G.bgGfx    = s.add.graphics().setDepth(0);
+    G.snakeGfx = s.add.graphics().setDepth(2);
+    G.foodGfx  = s.add.graphics().setDepth(3);
+
+    drawBackground();
+    buildHUD(s);
+
+    // ── Keyboard input ─────────────────────────────────
+    s.input.keyboard.on('keydown', (ev) => {
+        switch (ev.keyCode) {
+            case Phaser.Input.Keyboard.KeyCodes.UP:
+            case Phaser.Input.Keyboard.KeyCodes.W:    setDir(0, -1); break;
+            case Phaser.Input.Keyboard.KeyCodes.DOWN:
+            case Phaser.Input.Keyboard.KeyCodes.S:    setDir(0,  1); break;
+            case Phaser.Input.Keyboard.KeyCodes.LEFT:
+            case Phaser.Input.Keyboard.KeyCodes.A:    setDir(-1, 0); break;
+            case Phaser.Input.Keyboard.KeyCodes.RIGHT:
+            case Phaser.Input.Keyboard.KeyCodes.D:    setDir( 1, 0); break;
+        }
+    });
+
+    // ── Touch swipe ────────────────────────────────────
+    s.input.on('pointerdown', (ptr) => {
+        G.touchStartX = ptr.x;
+        G.touchStartY = ptr.y;
+    });
+    s.input.on('pointerup', (ptr) => {
+        const dx    = ptr.x - G.touchStartX;
+        const dy    = ptr.y - G.touchStartY;
+        const absDx = Math.abs(dx);
+        const absDy = Math.abs(dy);
+        if (absDx < 20 && absDy < 20) return;   // too short — ignore
+        if (absDx > absDy) setDir(dx > 0 ? 1 : -1, 0);
+        else                setDir(0, dy > 0 ? 1 : -1);
+    });
+
+    // ── Food pulse tween ───────────────────────────────
+    G.foodScale = 1.0;
+    s.tweens.addCounter({
+        from:     0.82,
+        to:       1.18,
+        duration: 580,
+        yoyo:     true,
+        repeat:   -1,
+        ease:     'Sine.easeInOut',
+        onUpdate: (tw) => { G.foodScale = tw.getValue(); }
+    });
+
+    // ── Step timer (game logic) ────────────────────────
+    G.moveTimer = s.time.addEvent({
+        delay:    G.difficulty.speed,
+        loop:     true,
+        callback: stepSnake,
+    });
+
+    // ── Countdown timer (1 s) ──────────────────────────
+    s.time.addEvent({ delay: 1000, loop: true, callback: tickTimer });
+
+    GameBridge.log(`Snake start: stage=${GameBridge.stage} speed=${G.difficulty.speed}ms target=${G.difficulty.targetScore}`);
+}
+
+// ============================================================
+// Draw static grid background
+// ============================================================
+function drawBackground() {
+    const g = G.bgGfx;
+    g.clear();
+
+    // Grid area fill
+    g.fillStyle(0x080818, 1);
+    g.fillRect(GRID_X - 2, GRID_Y - 2, GRID_PX_W + 4, GRID_PX_H + 4);
+
+    // Grid lines
+    g.lineStyle(1, 0x111130, 1);
+    for (let c = 0; c <= GRID_COLS; c++) {
+        const x = GRID_X + c * CELL;
+        g.lineBetween(x, GRID_Y, x, GRID_Y + GRID_PX_H);
+    }
+    for (let r = 0; r <= GRID_ROWS; r++) {
+        const y = GRID_Y + r * CELL;
+        g.lineBetween(GRID_X, y, GRID_X + GRID_PX_W, y);
+    }
+
+    // Outer border glow
+    g.lineStyle(2, 0x00ff88, 0.35);
+    g.strokeRect(GRID_X - 2, GRID_Y - 2, GRID_PX_W + 4, GRID_PX_H + 4);
+
+    // Corner accent bars
+    const cs = 14;
+    g.lineStyle(3, 0x00ff88, 1);
+    [
+        [GRID_X - 2, GRID_Y - 2,  1,  0],   // top-left H
+        [GRID_X - 2, GRID_Y - 2,  0,  1],   // top-left V
+        [GRID_X + GRID_PX_W + 2, GRID_Y - 2, -1, 0],  // top-right H
+        [GRID_X + GRID_PX_W + 2, GRID_Y - 2,  0, 1],  // top-right V
+        [GRID_X - 2, GRID_Y + GRID_PX_H + 2,  1,  0], // bot-left H
+        [GRID_X - 2, GRID_Y + GRID_PX_H + 2,  0, -1], // bot-left V
+        [GRID_X + GRID_PX_W + 2, GRID_Y + GRID_PX_H + 2, -1,  0], // bot-right H
+        [GRID_X + GRID_PX_W + 2, GRID_Y + GRID_PX_H + 2,  0, -1], // bot-right V
+    ].forEach(([sx, sy, dx, dy]) => {
+        g.lineBetween(sx, sy, sx + dx * cs, sy + dy * cs);
+    });
+}
+
+// ============================================================
+// HUD (static text/graphics)
+// ============================================================
+function buildHUD(s) {
+    const hud = s.add.graphics().setDepth(1);
+
+    // Background bar
+    hud.fillStyle(0x080818, 0.97);
+    hud.fillRoundedRect(6, 6, CANVAS_W - 12, HUD_H - 8, 12);
+    hud.lineStyle(1, 0x1a1a3e, 1);
+    hud.strokeRoundedRect(6, 6, CANVAS_W - 12, HUD_H - 8, 12);
+
+    // Vertical dividers
+    hud.lineStyle(1, 0x1a1a3e, 1);
+    hud.lineBetween(145, 14, 145, HUD_H - 10);
+    hud.lineBetween(275, 14, 275, HUD_H - 10);
+
+    // ── Left column: Stage + Score ──────────────────────
+    s.add.text(16, 14, 'STAGE', {
+        fontSize: '10px', color: '#445', fontFamily: 'Arial', fontStyle: 'bold'
+    }).setDepth(2);
+    s.add.text(16, 26, `${GameBridge.stage}`, {
+        fontSize: '34px', color: '#00ff88', fontFamily: 'Arial', fontStyle: 'bold'
+    }).setDepth(2);
+    s.add.text(16, 70, '점수', {
+        fontSize: '10px', color: '#445', fontFamily: 'Arial'
+    }).setDepth(2);
+    G.scoreText = s.add.text(16, 82, '0', {
+        fontSize: '22px', color: '#ffffff', fontFamily: 'Arial', fontStyle: 'bold'
+    }).setDepth(2);
+
+    // ── Center column: Timer + Target ──────────────────
+    s.add.text(155, 14, '남은시간', {
+        fontSize: '10px', color: '#445', fontFamily: 'Arial'
+    }).setDepth(2);
+    G.timerText = s.add.text(210, 60, formatTime(G.difficulty.timeLimit), {
+        fontSize: '32px', color: '#FFD700', fontFamily: 'Arial', fontStyle: 'bold'
+    }).setOrigin(0.5, 1).setDepth(2);
+    s.add.text(155, 72, '목표', {
+        fontSize: '10px', color: '#445', fontFamily: 'Arial'
+    }).setDepth(2);
+    s.add.text(155, 84, `${G.difficulty.targetScore}점`, {
+        fontSize: '14px', color: '#666', fontFamily: 'Arial'
+    }).setDepth(2);
+
+    // ── Right column: Best score + icon ────────────────
+    s.add.text(284, 14, '최고점수', {
+        fontSize: '10px', color: '#445', fontFamily: 'Arial'
+    }).setDepth(2);
+    s.add.text(284, 26, String(GameBridge.highScore), {
+        fontSize: '26px', color: '#FFD700', fontFamily: 'Arial', fontStyle: 'bold'
+    }).setDepth(2);
+    s.add.text(290, 68, '🐍', {
+        fontSize: '26px', fontFamily: 'Arial'
+    }).setDepth(2);
+}
+
+function formatTime(sec) {
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+// ============================================================
+// Scene: Update — render only (logic is timer-driven)
+// ============================================================
+function updateScene() {
+    if (G.gameOver) return;
+
+    // ── Snake ──────────────────────────────────────────
+    G.snakeGfx.clear();
+    const len = G.snake.length;
+
+    for (let i = len - 1; i >= 0; i--) {
+        const seg = G.snake[i];
+        const cx  = GRID_X + seg.col * CELL;
+        const cy  = GRID_Y + seg.row * CELL;
+        const pad = 1;
+
+        if (i === 0) {
+            // HEAD — bright green with highlight + eyes
+            G.snakeGfx.fillStyle(0x00ff88, 1);
+            G.snakeGfx.fillRoundedRect(cx + pad, cy + pad, CELL - pad * 2, CELL - pad * 2, 4);
+
+            // top shine
+            G.snakeGfx.fillStyle(0xbbffdd, 0.45);
+            G.snakeGfx.fillRoundedRect(cx + pad + 2, cy + pad + 2, CELL - pad * 2 - 4, Math.floor((CELL - pad * 2) * 0.4), 2);
+
+            // eyes
+            drawEyes(G.snakeGfx, cx, cy, G.dir);
+        } else {
+            // BODY — fade from bright to dim toward tail
+            const t  = i / Math.max(len - 1, 1);   // 0 near head, 1 = tail
+            const gb = Math.floor(0xcc - t * 0x66);
+            const bodyColor = (0x00 << 16) | (gb << 8) | Math.floor(0x33 + t * 0x11);
+
+            G.snakeGfx.fillStyle(bodyColor, 1);
+            const bp = pad + Math.floor(t * 2);
+            const br = Math.max(1, 4 - Math.floor(t * 3));
+            G.snakeGfx.fillRoundedRect(cx + bp, cy + bp, CELL - bp * 2, CELL - bp * 2, br);
+
+            // subtle shine on first few body segments
+            if (i < 5) {
+                const shineA = 0.08 * (1 - i / 5);
+                G.snakeGfx.fillStyle(0xffffff, shineA);
+                G.snakeGfx.fillRoundedRect(cx + bp + 1, cy + bp + 1, CELL - bp * 2 - 2, Math.floor((CELL - bp * 2) * 0.38), 1);
+            }
+        }
+    }
+
+    // ── Food ───────────────────────────────────────────
+    G.foodGfx.clear();
+    const fc  = G.food;
+    const fx  = GRID_X + fc.col * CELL + CELL * 0.5;
+    const fy  = GRID_Y + fc.row * CELL + CELL * 0.5;
+    const fr  = (CELL * 0.40) * G.foodScale;
+
+    // outer glow
+    G.foodGfx.fillStyle(0xff2244, 0.18);
+    G.foodGfx.fillCircle(fx, fy, fr * 1.65);
+
+    // main body
+    G.foodGfx.fillStyle(0xff2244, 1);
+    G.foodGfx.fillCircle(fx, fy, fr);
+
+    // primary highlight
+    G.foodGfx.fillStyle(0xff88aa, 0.65);
+    G.foodGfx.fillCircle(fx - fr * 0.26, fy - fr * 0.28, fr * 0.36);
+
+    // specular dot
+    G.foodGfx.fillStyle(0xffffff, 0.55);
+    G.foodGfx.fillCircle(fx - fr * 0.22, fy - fr * 0.25, fr * 0.16);
+}
+
+// ============================================================
+// Draw snake eyes
+// ============================================================
+function drawEyes(gfx, cx, cy, dir) {
+    const half = CELL / 2;
+    const eo   = 3;   // offset from center
+    const er   = 1.8; // eye radius
+    let e1x, e1y, e2x, e2y;
+
+    if      (dir.x ===  1) { e1x = cx + half + 2; e1y = cy + half - eo; e2x = cx + half + 2; e2y = cy + half + eo; }
+    else if (dir.x === -1) { e1x = cx + half - 4; e1y = cy + half - eo; e2x = cx + half - 4; e2y = cy + half + eo; }
+    else if (dir.y === -1) { e1x = cx + half - eo; e1y = cy + half - 3; e2x = cx + half + eo; e2y = cy + half - 3; }
+    else                   { e1x = cx + half - eo; e1y = cy + half + 3; e2x = cx + half + eo; e2y = cy + half + 3; }
+
+    gfx.fillStyle(0x001a08, 1);
+    gfx.fillCircle(e1x, e1y, er);
+    gfx.fillCircle(e2x, e2y, er);
+
+    gfx.fillStyle(0xffffff, 1);
+    gfx.fillCircle(e1x + 0.5, e1y - 0.5, er * 0.45);
+    gfx.fillCircle(e2x + 0.5, e2y - 0.5, er * 0.45);
+}
+
+// ============================================================
+// Direction (no 180° reversal allowed)
+// ============================================================
+function setDir(dx, dy) {
+    if (G.gameOver) return;
+    if (dx !== 0 && G.dir.x !== 0) return;
+    if (dy !== 0 && G.dir.y !== 0) return;
+    G.nextDir = { x: dx, y: dy };
+}
+
+// ============================================================
+// Snake step (called by Phaser timer)
+// ============================================================
+function stepSnake() {
+    if (G.gameOver) return;
+
+    G.dir = { ...G.nextDir };
+
+    const head    = G.snake[0];
+    const newHead = { col: head.col + G.dir.x, row: head.row + G.dir.y };
+
+    // ── Wall collision ─────────────────────────────────
+    if (newHead.col < 0 || newHead.col >= GRID_COLS ||
+        newHead.row < 0 || newHead.row >= GRID_ROWS) {
+        triggerGameOver('wall');
+        return;
+    }
+
+    // ── Self collision (exclude tail which will move away) ──
+    for (let i = 0; i < G.snake.length - 1; i++) {
+        if (G.snake[i].col === newHead.col && G.snake[i].row === newHead.row) {
+            triggerGameOver('self');
+            return;
+        }
+    }
+
+    G.snake.unshift(newHead);
+
+    // ── Food eaten ─────────────────────────────────────
+    if (newHead.col === G.food.col && newHead.row === G.food.row) {
+        addScore(10);
+        fxEatFood();
+        placeFood();
+        if (G.score >= G.difficulty.targetScore) {
+            G.scene.time.addEvent({ delay: 400, callback: () => endGame(true) });
+        }
+    } else {
+        G.snake.pop();
+    }
+}
+
+// ============================================================
+// Food placement
+// ============================================================
+function placeFood() {
+    const taken = new Set(G.snake.map(s => `${s.col},${s.row}`));
+    let col, row, tries = 0;
+    do {
+        col = Math.floor(Math.random() * GRID_COLS);
+        row = Math.floor(Math.random() * GRID_ROWS);
+        tries++;
+    } while (taken.has(`${col},${row}`) && tries < 300);
+    G.food = { col, row };
+}
+
+// ============================================================
+// Countdown timer (1 s intervals)
+// ============================================================
+function tickTimer() {
+    if (G.gameOver) return;
+    G.timeLeft = Math.max(0, G.timeLeft - 1);
+    if (G.timerText) {
+        G.timerText.setText(formatTime(G.timeLeft));
+        if      (G.timeLeft <= 10) G.timerText.setStyle({ color: '#ff3333', fontSize: '32px', fontFamily: 'Arial', fontStyle: 'bold' });
+        else if (G.timeLeft <= 30) G.timerText.setStyle({ color: '#ffaa00', fontSize: '32px', fontFamily: 'Arial', fontStyle: 'bold' });
+    }
+    if (G.timeLeft <= 0) triggerGameOver('time');
+}
+
+// ============================================================
+// Score
+// ============================================================
+function addScore(pts) {
+    G.score += pts;
+    if (G.scoreText) G.scoreText.setText(String(G.score));
+    GameBridge.updateScore(G.score);
+}
+
+// ============================================================
+// FX: eating food
+// ============================================================
+function fxEatFood() {
+    const s  = G.scene;
+    const fx = GRID_X + G.food.col * CELL + CELL / 2;  // food was NOT replaced yet
+    const fy = GRID_Y + G.food.row * CELL + CELL / 2;
+
+    // Score pop-up
+    const pop = s.add.text(fx, fy - 8, '+10', {
+        fontSize: '18px', color: '#FFD700', fontFamily: 'Arial', fontStyle: 'bold',
+        stroke: '#000', strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(10);
+    s.tweens.add({
+        targets:    pop,
+        y:          fy - 52,
+        alpha:      0,
+        duration:   680,
+        ease:       'Power2',
+        onComplete: () => pop.destroy(),
+    });
+
+    // Burst ring
+    const g = s.add.graphics().setDepth(8);
+    let frame = 0;
+    const total = 14;
+    s.time.addEvent({
+        delay: 16, repeat: total - 1,
+        callback: () => {
+            frame++;
+            g.clear();
+            const a = (1 - frame / total) * 0.85;
+            g.lineStyle(2, 0xff2244, a);
+            g.strokeCircle(fx, fy, 4 + frame * 3);
+            if (frame >= total) g.destroy();
+        }
+    });
+}
+
+// ============================================================
+// FX: collision flash + particles
+// ============================================================
+function fxCollision(col, row) {
+    const s  = G.scene;
+    const cx = GRID_X + col * CELL + CELL / 2;
+    const cy = GRID_Y + row * CELL + CELL / 2;
+
+    // Full-screen red flash
+    const flash = s.add.graphics().setDepth(15);
+    flash.fillStyle(0xff1111, 0.50);
+    flash.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    s.tweens.add({
+        targets: flash, alpha: 0, duration: 400, ease: 'Power2',
+        onComplete: () => flash.destroy(),
+    });
+
+    // Exploding particles
+    const pg = s.add.graphics().setDepth(16);
+    const pts = [];
+    for (let i = 0; i < 14; i++) {
+        const angle = (i / 14) * Math.PI * 2;
+        const spd   = 2.5 + Math.random() * 3.5;
+        pts.push({ x: cx, y: cy, vx: Math.cos(angle) * spd, vy: Math.sin(angle) * spd, r: 3 + Math.random() * 2.5 });
+    }
+    let pf = 0;
+    const pt = 28;
+    s.time.addEvent({
+        delay: 18, repeat: pt - 1,
+        callback: () => {
+            pf++;
+            pg.clear();
+            const a = 1 - pf / pt;
+            for (const p of pts) {
+                p.x += p.vx;
+                p.y += p.vy;
+                p.vy += 0.18;
+                pg.fillStyle(0x00ff88, a);
+                pg.fillCircle(p.x, p.y, p.r * (1 - pf / pt * 0.6));
+            }
+            if (pf >= pt) pg.destroy();
+        }
+    });
+}
+
+// ============================================================
+// Game Over
+// ============================================================
+function triggerGameOver(reason) {
+    if (G.gameOver) return;
+    G.gameOver = true;
+    if (G.moveTimer) G.moveTimer.remove();
+
+    fxCollision(G.snake[0].col, G.snake[0].row);
+
+    const cleared = G.score >= G.difficulty.targetScore;
+    G.scene.time.addEvent({ delay: 550, callback: () => showOverlay(cleared, reason) });
+    G.scene.time.addEvent({ delay: 3800, callback: () => endGame(cleared) });
+}
+
+function showOverlay(cleared, reason) {
+    const s = G.scene;
+
+    // Dim background
+    const ov = s.add.graphics().setDepth(20);
+    ov.fillStyle(0x000000, 0.82);
+    ov.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+    // Panel
+    const panelColor  = cleared ? 0x002211 : 0x1a0008;
+    const borderColor = cleared ? 0x00ff88 : 0xff2244;
+    ov.fillStyle(panelColor, 1);
+    ov.fillRoundedRect(48, 220, 304, 265, 18);
+    ov.lineStyle(2, borderColor, 0.85);
+    ov.strokeRoundedRect(48, 220, 304, 265, 18);
+
+    // Title
+    const titleColor = cleared ? '#00ff88' : '#ff2244';
+    const titleTxt   = cleared ? 'CLEAR!' : 'GAME OVER';
+    s.add.text(200, 258, titleTxt, {
+        fontSize: '38px', color: titleColor, fontFamily: 'Arial', fontStyle: 'bold',
+        stroke: '#000', strokeThickness: 4,
+    }).setOrigin(0.5).setDepth(21);
+
+    // Reason (fail only)
+    if (!cleared) {
+        const rm = { wall: '벽에 충돌!', self: '자기 몸에 충돌!', time: '시간 초과!' };
+        s.add.text(200, 300, rm[reason] || '', {
+            fontSize: '15px', color: '#ff8888', fontFamily: 'Arial',
+        }).setOrigin(0.5).setDepth(21);
+    }
+
+    // Score
+    s.add.text(200, 334, `점수: ${G.score}`, {
+        fontSize: '32px', color: '#ffffff', fontFamily: 'Arial', fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(21);
+
+    // Snake length
+    s.add.text(200, 374, `뱀 길이: ${G.snake.length}칸`, {
+        fontSize: '16px', color: '#aaaaaa', fontFamily: 'Arial',
+    }).setOrigin(0.5).setDepth(21);
+
+    // Target status
+    const tgtMsg = cleared
+        ? '🎉 목표 달성!'
+        : `목표: ${G.difficulty.targetScore}점  |  현재: ${G.score}점`;
+    s.add.text(200, 408, tgtMsg, {
+        fontSize: '13px', color: cleared ? '#FFD700' : '#666', fontFamily: 'Arial',
+    }).setOrigin(0.5).setDepth(21);
+
+    s.add.text(200, 460, '잠시 후 결과가 전송됩니다...', {
+        fontSize: '11px', color: '#444', fontFamily: 'Arial',
+    }).setOrigin(0.5).setDepth(21);
+}
+
+function endGame(cleared) {
+    GameBridge.complete({
+        score:   G.score,
+        cleared,
+        customData: {
+            stage:       GameBridge.stage,
+            snakeLength: G.snake.length,
+            timeLeft:    G.timeLeft,
+        }
+    });
+}
+
+// ============================================================
+// Bootstrap
+// ============================================================
+const isTest = !window.AndroidBridge && !window.webkit?.messageHandlers?.iOSBridge;
+if (isTest) {
+    document.getElementById('test-start').onclick = () => {
+        GameBridge.onInit({
+            stage:      parseInt(document.getElementById('test-stage').value)     || 1,
+            highScore:  parseInt(document.getElementById('test-highscore').value) || 0,
+            customData: document.getElementById('test-customdata').value           || '{}'
+        });
+    };
+} else {
+    document.getElementById('test-panel').classList.add('hidden');
+}
+</script>
+</body>
+</html>

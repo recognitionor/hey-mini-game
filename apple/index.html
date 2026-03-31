@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>사과 게임</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body {
+            width: 100%; height: 100%;
+            overflow: hidden; background: #0d0d1a;
+        }
+        body { touch-action: none; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+        #game-wrapper {
+            position: fixed; inset: 0;
+            display: flex; align-items: center; justify-content: center;
+        }
+        #test-panel {
+            position: fixed; top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(10, 10, 30, 0.98);
+            border: 1px solid #2a2a5a; padding: 28px;
+            border-radius: 20px; z-index: 9999;
+            min-width: 300px; color: #fff;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.7);
+        }
+        #test-panel .icon { text-align: center; font-size: 52px; margin-bottom: 6px; }
+        #test-panel h3 { margin-bottom: 6px; color: #ff4444; text-align: center; font-size: 22px; }
+        #test-panel p  { text-align: center; font-size: 12px; color: #666; margin-bottom: 20px; line-height: 1.6; }
+        #test-panel label { display: block; margin-bottom: 14px; font-size: 13px; color: #aaa; }
+        #test-panel input, #test-panel textarea {
+            width: 100%; padding: 10px; margin-top: 6px;
+            border-radius: 8px; border: 1px solid #2a2a5a;
+            background: #111; color: #fff; font-size: 14px; outline: none;
+        }
+        #test-panel input:focus { border-color: #ff4444; }
+        #test-panel textarea { resize: none; height: 48px; }
+        #test-panel button {
+            width: 100%; padding: 14px; margin-top: 8px;
+            background: linear-gradient(135deg, #ff4444, #cc2222);
+            color: #fff; border: none; border-radius: 10px;
+            font-size: 17px; font-weight: bold; cursor: pointer;
+        }
+        #test-panel button:active { opacity: 0.85; }
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+<div id="game-wrapper">
+    <div id="test-panel">
+        <div class="icon">🍎</div>
+        <h3>사과 게임</h3>
+        <p>드래그로 합이 10이 되는<br>사과 영역을 선택하세요!</p>
+        <label>스테이지
+            <input type="number" id="test-stage" value="1" min="1" max="20">
+        </label>
+        <label>최고점수
+            <input type="number" id="test-highscore" value="0">
+        </label>
+        <label>커스텀 데이터 (JSON)
+            <textarea id="test-customdata">{}</textarea>
+        </label>
+        <button id="test-start">게임 시작</button>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.60.0/phaser.min.js"></script>
+<script>
+// ============================================================
+// GameBridge
+// ============================================================
+const GameBridge = {
+    stage: 1, highScore: 0, customData: {},
+    onInit(data) {
+        this.stage     = data.stage || 1;
+        this.highScore = data.highScore || 0;
+        this.customData = JSON.parse(data.customData || '{}');
+        document.getElementById('test-panel').classList.add('hidden');
+        initGame();
+    },
+    updateScore(score) {
+        if (window.AndroidBridge) AndroidBridge.updateScore(score);
+        else if (window.webkit?.messageHandlers?.iOSBridge)
+            webkit.messageHandlers.iOSBridge.postMessage({ type: 'updateScore', score });
+    },
+    complete(result) {
+        if (window.AndroidBridge) AndroidBridge.gameComplete(JSON.stringify(result));
+        else if (window.webkit?.messageHandlers?.iOSBridge)
+            webkit.messageHandlers.iOSBridge.postMessage({
+                type: 'gameComplete', score: result.score,
+                cleared: result.cleared, customData: JSON.stringify(result.customData || {})
+            });
+        else {
+            alert(`게임 완료!\n점수: ${result.score}\n클리어: ${result.cleared ? '✅ 성공!' : '❌ 실패'}`);
+            location.reload();
+        }
+    },
+    saveData(data) {
+        if (window.AndroidBridge) AndroidBridge.saveData(JSON.stringify(data));
+        else if (window.webkit?.messageHandlers?.iOSBridge)
+            webkit.messageHandlers.iOSBridge.postMessage({ type: 'saveData', data: JSON.stringify(data) });
+    },
+    log(msg) {
+        console.log('[GameBridge]', msg);
+        if (window.AndroidBridge) AndroidBridge.log(msg);
+    }
+};
+window.GameBridge = GameBridge;
+
+// ============================================================
+// Constants
+// ============================================================
+const CW = 400, CH = 700;
+const HUD_H = 108;
+
+// ============================================================
+// Difficulty — more apples & less time as stage rises
+// ============================================================
+function getDifficulty(stage) {
+    // grid grows with stage: starts 10×13, up to 17×10 style
+    const cols        = Math.min(10 + Math.floor((stage - 1) / 2), 14);
+    const rows        = Math.min(13 + Math.floor((stage - 1) / 2), 17);
+    const timeLimit   = Math.max(60, 120 - (stage - 1) * 8);
+    const targetScore = 50 + (stage - 1) * 40;
+    return { cols, rows, timeLimit, targetScore };
+}
+
+// ============================================================
+// Global State
+// ============================================================
+const G = {
+    scene: null,
+    diff: null,
+    grid: [],          // grid[col][row] = { num, gfx, label, removed }
+    score: 0,
+    matchCount: 0,
+    timeLeft: 0,
+    gameOver: false,
+    // drag state
+    dragging: false,
+    dragStartCol: -1, dragStartRow: -1,
+    dragEndCol:   -1, dragEndRow:   -1,
+    // layout
+    CELL: 0,
+    OX: 0, OY: 0,      // grid origin (pixel)
+    // gfx layers
+    appleGfx: null,    // redrawn each frame for apples
+    selectGfx: null,   // drag selection rectangle
+    fxGfx: null,
+    // HUD
+    scoreText: null,
+    timerText: null,
+    clockEvent: null,
+};
+
+// Apple fill colours per number
+const NUM_COLOR = [
+    null,
+    0xE74C3C, // 1 red
+    0xFF8C00, // 2 orange
+    0xF4D03F, // 3 yellow
+    0x2ECC71, // 4 green
+    0x1ABC9C, // 5 teal
+    0x3498DB, // 6 blue
+    0x9B59B6, // 7 purple
+    0xE91E63, // 8 pink
+    0xFF5722, // 9 deep orange
+];
+
+// ============================================================
+// Init
+// ============================================================
+function initGame() {
+    const diff  = getDifficulty(GameBridge.stage);
+    G.diff      = diff;
+    G.score     = 0;
+    G.matchCount = 0;
+    G.timeLeft  = diff.timeLimit;
+    G.gameOver  = false;
+    G.dragging  = false;
+
+    // Cell size to fit grid in canvas
+    const maxCellW = Math.floor((CW - 16) / diff.cols);
+    const maxCellH = Math.floor((CH - HUD_H - 16) / diff.rows);
+    G.CELL = Math.min(maxCellW, maxCellH, 36);
+
+    // Center the grid
+    G.OX = Math.floor((CW - G.CELL * diff.cols) / 2);
+    G.OY = HUD_H + Math.floor((CH - HUD_H - G.CELL * diff.rows) / 2);
+
+    // Build grid (random 1-9)
+    G.grid = [];
+    for (let c = 0; c < diff.cols; c++) {
+        G.grid[c] = [];
+        for (let r = 0; r < diff.rows; r++) {
+            G.grid[c][r] = { num: Phaser.Math.Between(1, 9), removed: false };
+        }
+    }
+
+    new Phaser.Game({
+        type: Phaser.AUTO,
+        width: CW, height: CH,
+        backgroundColor: '#0d0d1a',
+        parent: 'game-wrapper',
+        scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+        scene: { create: createScene, update: updateScene }
+    });
+}
+
+// ============================================================
+// Create Scene
+// ============================================================
+function createScene() {
+    const s = this;
+    G.scene = s;
+
+    // ── HUD background ───────────────────────────────────
+    const hud = s.add.graphics();
+    hud.fillStyle(0x0a0a20, 0.95);
+    hud.fillRoundedRect(8, 6, CW - 16, HUD_H - 8, 10);
+    hud.lineStyle(1, 0x2a2a6a, 1);
+    hud.strokeRoundedRect(8, 6, CW - 16, HUD_H - 8, 10);
+
+    // Stage
+    s.add.text(20, 14, `STAGE  ${GameBridge.stage}`, {
+        fontSize: '11px', color: '#ff6666', fontFamily: 'Arial', fontStyle: 'bold'
+    });
+
+    // Score
+    s.add.text(20, 30, '점수', { fontSize: '11px', color: '#888', fontFamily: 'Arial' });
+    G.scoreText = s.add.text(20, 44, '0', {
+        fontSize: '34px', color: '#ffffff', fontFamily: 'Arial', fontStyle: 'bold'
+    });
+    s.add.text(20, 84, `목표: ${G.diff.targetScore}`, {
+        fontSize: '11px', color: '#555', fontFamily: 'Arial'
+    });
+
+    hud.lineBetween(200, 14, 200, HUD_H - 8);
+
+    // High score
+    s.add.text(210, 14, '최고점수', { fontSize: '11px', color: '#888', fontFamily: 'Arial' });
+    s.add.text(210, 30, String(GameBridge.highScore), {
+        fontSize: '22px', color: '#FFD700', fontFamily: 'Arial', fontStyle: 'bold'
+    });
+
+    // Timer
+    s.add.text(210, 62, '남은시간', { fontSize: '11px', color: '#888', fontFamily: 'Arial' });
+    G.timerText = s.add.text(210, 76, G.timeLeft + '초', {
+        fontSize: '20px', color: '#ff6b6b', fontFamily: 'Arial', fontStyle: 'bold'
+    });
+
+    // ── Grid border ──────────────────────────────────────
+    const border = s.add.graphics();
+    border.lineStyle(2, 0x3a1a1a, 1);
+    border.strokeRect(G.OX - 2, G.OY - 2, G.CELL * G.diff.cols + 4, G.CELL * G.diff.rows + 4);
+
+    // ── Graphics layers ──────────────────────────────────
+    G.appleGfx  = s.add.graphics().setDepth(1);
+    G.selectGfx = s.add.graphics().setDepth(2);
+    G.fxGfx     = s.add.graphics().setDepth(3);
+
+    // ── Number labels for each apple ─────────────────────
+    const fontSize = Math.max(10, Math.floor(G.CELL * 0.44)) + 'px';
+    for (let c = 0; c < G.diff.cols; c++) {
+        for (let r = 0; r < G.diff.rows; r++) {
+            const apple = G.grid[c][r];
+            const cx = G.OX + c * G.CELL + G.CELL / 2;
+            const cy = G.OY + r * G.CELL + G.CELL / 2;
+            apple.label = s.add.text(cx, cy, String(apple.num), {
+                fontSize,
+                color: '#ffffff',
+                fontFamily: 'Arial',
+                fontStyle: 'bold',
+                stroke: '#000000',
+                strokeThickness: 2,
+            }).setOrigin(0.5).setDepth(4);
+        }
+    }
+
+    // ── Input: drag ──────────────────────────────────────
+    s.input.on('pointerdown', onPointerDown, this);
+    s.input.on('pointermove', onPointerMove, this);
+    s.input.on('pointerup',   onPointerUp,   this);
+
+    // ── Clock ─────────────────────────────────────────────
+    G.clockEvent = s.time.addEvent({
+        delay: 1000, loop: true,
+        callback: () => {
+            if (G.gameOver) return;
+            G.timeLeft--;
+            G.timerText.setText(G.timeLeft + '초');
+            if (G.timeLeft <= 10) {
+                G.timerText.setColor('#ff2222');
+                s.tweens.add({ targets: G.timerText, alpha: 0.3, duration: 180, yoyo: true });
+            } else if (G.timeLeft <= 20) {
+                G.timerText.setColor('#ff8800');
+            }
+            if (G.timeLeft <= 0) endGame();
+        }
+    });
+
+    drawApples();
+}
+
+// ============================================================
+// Update Scene
+// ============================================================
+function updateScene() {
+    if (G.gameOver) return;
+    drawApples();
+    drawSelection();
+}
+
+// ============================================================
+// Draw Apples
+// ============================================================
+function drawApples() {
+    const g = G.appleGfx;
+    g.clear();
+
+    const { cols, rows } = G.diff;
+    const cell = G.CELL;
+    const r = cell * 0.42;       // apple radius
+    const pad = cell * 0.06;
+
+    for (let c = 0; c < cols; c++) {
+        for (let row = 0; row < rows; row++) {
+            const apple = G.grid[c][row];
+            if (!apple || apple.removed) continue;
+
+            const cx = G.OX + c * cell + cell / 2;
+            const cy = G.OY + row * cell + cell / 2;
+            const color = NUM_COLOR[apple.num];
+
+            // Selection highlight check
+            const inSel = isInSelection(c, row);
+
+            // Outer glow when selected
+            if (inSel) {
+                g.fillStyle(0xffdd44, 0.25);
+                g.fillCircle(cx, cy, r + 5);
+                g.lineStyle(2.5, 0xffdd44, 1);
+                g.strokeCircle(cx, cy, r + 1);
+            }
+
+            // Apple body
+            g.fillStyle(color, 1);
+            g.fillCircle(cx, cy, r);
+
+            // Darker bottom shadow
+            g.fillStyle(0x000000, 0.2);
+            g.fillEllipse(cx, cy + r * 0.3, r * 1.6, r * 0.9);
+
+            // Shine
+            g.fillStyle(0xffffff, 0.28);
+            g.fillCircle(cx - r * 0.28, cy - r * 0.28, r * 0.28);
+
+            // Stem
+            g.lineStyle(1.5, 0x5a3010, 1);
+            g.lineBetween(cx, cy - r, cx + 2, cy - r - 5);
+
+            // Leaf
+            g.fillStyle(0x22aa22, 1);
+            g.fillEllipse(cx + 3, cy - r - 4, 7, 4);
+
+            // Number label color: yellow when in selection, white otherwise
+            if (apple.label) {
+                apple.label.setColor(inSel ? '#ffee00' : '#ffffff');
+            }
+        }
+    }
+}
+
+// ============================================================
+// Draw Selection Rectangle
+// ============================================================
+function drawSelection() {
+    const g = G.selectGfx;
+    g.clear();
+    if (!G.dragging) return;
+
+    const c1 = Math.min(G.dragStartCol, G.dragEndCol);
+    const r1 = Math.min(G.dragStartRow, G.dragEndRow);
+    const c2 = Math.max(G.dragStartCol, G.dragEndCol);
+    const r2 = Math.max(G.dragStartRow, G.dragEndRow);
+
+    if (c1 < 0 || r1 < 0) return;
+
+    const x  = G.OX + c1 * G.CELL;
+    const y  = G.OY + r1 * G.CELL;
+    const rw = (c2 - c1 + 1) * G.CELL;
+    const rh = (r2 - r1 + 1) * G.CELL;
+
+    // Compute sum for colour feedback
+    const sum = getSelectionSum(c1, r1, c2, r2);
+    const col = sum === 10 ? 0x00ff88 : (sum > 10 ? 0xff4444 : 0xffdd44);
+
+    g.fillStyle(col, 0.15);
+    g.fillRoundedRect(x, y, rw, rh, 4);
+    g.lineStyle(2, col, 0.9);
+    g.strokeRoundedRect(x, y, rw, rh, 4);
+
+    // Sum label
+    if (sum > 0) {
+        // Draw sum text via existing text object trick — use fxGfx text
+        // (Phaser Graphics can't draw text directly; use a cached text node)
+        showSumLabel(x + rw / 2, y - 14, sum, col);
+    }
+}
+
+// Temp label management
+let _sumLabel = null;
+function showSumLabel(x, y, sum, col) {
+    if (!_sumLabel) {
+        _sumLabel = G.scene.add.text(0, 0, '', {
+            fontSize: '16px', fontFamily: 'Arial', fontStyle: 'bold',
+            stroke: '#000', strokeThickness: 3,
+        }).setOrigin(0.5).setDepth(5);
+    }
+    _sumLabel.setPosition(x, Math.max(y, HUD_H + 6));
+    _sumLabel.setText('합: ' + sum);
+    _sumLabel.setColor(sum === 10 ? '#00ff88' : (sum > 10 ? '#ff4444' : '#ffdd44'));
+    _sumLabel.setVisible(true);
+}
+function hideSumLabel() {
+    if (_sumLabel) _sumLabel.setVisible(false);
+}
+
+// ============================================================
+// Pointer Events
+// ============================================================
+function pixelToGrid(px, py) {
+    const c = Math.floor((px - G.OX) / G.CELL);
+    const r = Math.floor((py - G.OY) / G.CELL);
+    return { c, r };
+}
+
+function clampGrid(c, r) {
+    return {
+        c: Phaser.Math.Clamp(c, 0, G.diff.cols - 1),
+        r: Phaser.Math.Clamp(r, 0, G.diff.rows - 1),
+    };
+}
+
+function onPointerDown(ptr) {
+    if (G.gameOver) return;
+    const { c, r } = pixelToGrid(ptr.x, ptr.y);
+    if (c < 0 || c >= G.diff.cols || r < 0 || r >= G.diff.rows) return;
+    G.dragging     = true;
+    G.dragStartCol = c; G.dragStartRow = r;
+    G.dragEndCol   = c; G.dragEndRow   = r;
+}
+
+function onPointerMove(ptr) {
+    if (!G.dragging || G.gameOver) return;
+    const { c, r } = clampGrid(...Object.values(pixelToGrid(ptr.x, ptr.y)));
+    G.dragEndCol = c; G.dragEndRow = r;
+}
+
+function onPointerUp(ptr) {
+    if (!G.dragging || G.gameOver) return;
+    G.dragging = false;
+    hideSumLabel();
+
+    const c1 = Math.min(G.dragStartCol, G.dragEndCol);
+    const r1 = Math.min(G.dragStartRow, G.dragEndRow);
+    const c2 = Math.max(G.dragStartCol, G.dragEndCol);
+    const r2 = Math.max(G.dragStartRow, G.dragEndRow);
+
+    const sum = getSelectionSum(c1, r1, c2, r2);
+    if (sum === 10) {
+        doRemove(c1, r1, c2, r2);
+    } else {
+        fxWrongFlash(c1, r1, c2, r2);
+    }
+
+    G.selectGfx.clear();
+}
+
+// ============================================================
+// Helpers
+// ============================================================
+function isInSelection(c, row) {
+    if (!G.dragging) return false;
+    const c1 = Math.min(G.dragStartCol, G.dragEndCol);
+    const r1 = Math.min(G.dragStartRow, G.dragEndRow);
+    const c2 = Math.max(G.dragStartCol, G.dragEndCol);
+    const r2 = Math.max(G.dragStartRow, G.dragEndRow);
+    return c >= c1 && c <= c2 && row >= r1 && row <= r2;
+}
+
+function getSelectionSum(c1, r1, c2, r2) {
+    let sum = 0;
+    for (let c = c1; c <= c2; c++) {
+        for (let r = r1; r <= r2; r++) {
+            const a = G.grid[c]?.[r];
+            if (a && !a.removed) sum += a.num;
+        }
+    }
+    return sum;
+}
+
+// ============================================================
+// Remove Apples
+// ============================================================
+function doRemove(c1, r1, c2, r2) {
+    const s = G.scene;
+    const cell = G.CELL;
+
+    const positions = [];
+    for (let c = c1; c <= c2; c++) {
+        for (let r = r1; r <= r2; r++) {
+            const a = G.grid[c]?.[r];
+            if (a && !a.removed) {
+                a.removed = true;
+                if (a.label) a.label.setVisible(false);
+                positions.push({
+                    cx: G.OX + c * cell + cell / 2,
+                    cy: G.OY + r * cell + cell / 2,
+                    color: NUM_COLOR[a.num]
+                });
+            }
+        }
+    }
+
+    const count = positions.length;
+    G.score += count * 10;
+    G.matchCount++;
+    G.scoreText.setText(String(G.score));
+    GameBridge.updateScore(G.score);
+
+    // Center of removed area
+    const mx = G.OX + ((c1 + c2) / 2) * cell + cell / 2;
+    const my = G.OY + ((r1 + r2) / 2) * cell + cell / 2;
+
+    // Burst particles at each apple
+    positions.forEach(({ cx, cy, color }) => fxBurst(cx, cy, color));
+
+    // Score popup
+    fxScorePop(mx, my, count * 10);
+
+    // Check clear
+    if (G.score >= G.diff.targetScore) {
+        s.time.delayedCall(600, () => endGame(true));
+    }
+}
+
+// ============================================================
+// Effects
+// ============================================================
+function fxBurst(cx, cy, color) {
+    const s = G.scene;
+    for (let i = 0; i < 8; i++) {
+        const angle = (i / 8) * Math.PI * 2;
+        const dist  = Phaser.Math.Between(15, 35);
+        const dot   = s.add.graphics().setDepth(6);
+        dot.fillStyle(color, 1);
+        dot.fillCircle(0, 0, Phaser.Math.Between(2, 5));
+        dot.setPosition(cx, cy);
+        s.tweens.add({
+            targets: dot,
+            x: cx + Math.cos(angle) * dist,
+            y: cy + Math.sin(angle) * dist,
+            alpha: 0, duration: Phaser.Math.Between(300, 500),
+            onComplete: () => dot.destroy()
+        });
+    }
+}
+
+function fxScorePop(x, y, pts) {
+    const s = G.scene;
+    const t = s.add.text(x, y, `+${pts}`, {
+        fontSize: '20px', color: '#00ff88', fontFamily: 'Arial', fontStyle: 'bold',
+        stroke: '#003322', strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(7);
+    s.tweens.add({ targets: t, y: y - 50, alpha: 0, duration: 700, onComplete: () => t.destroy() });
+}
+
+function fxWrongFlash(c1, r1, c2, r2) {
+    const s = G.scene;
+    const x  = G.OX + c1 * G.CELL;
+    const y  = G.OY + r1 * G.CELL;
+    const rw = (c2 - c1 + 1) * G.CELL;
+    const rh = (r2 - r1 + 1) * G.CELL;
+    const flash = s.add.graphics().setDepth(4);
+    flash.fillStyle(0xff2222, 0.35);
+    flash.fillRoundedRect(x, y, rw, rh, 4);
+    s.tweens.add({ targets: flash, alpha: 0, duration: 350, onComplete: () => flash.destroy() });
+}
+
+// ============================================================
+// End Game
+// ============================================================
+function endGame(cleared) {
+    if (G.gameOver) return;
+    G.gameOver = true;
+    if (G.clockEvent) G.clockEvent.remove();
+    hideSumLabel();
+
+    const s = G.scene;
+    cleared = cleared || (G.score >= G.diff.targetScore);
+
+    // Overlay
+    const ov = s.add.graphics().setDepth(20);
+    ov.fillStyle(0x000000, 0.88);
+    ov.fillRect(0, 0, CW, CH);
+
+    const panel = s.add.graphics().setDepth(21);
+    panel.fillStyle(0x0a0a25, 1);
+    panel.fillRoundedRect(CW/2 - 160, CH/2 - 190, 320, 380, 20);
+    panel.lineStyle(2, cleared ? 0xff4444 : 0x444444, 1);
+    panel.strokeRoundedRect(CW/2 - 160, CH/2 - 190, 320, 380, 20);
+
+    const D = 22;
+    s.add.text(CW/2, CH/2 - 150, cleared ? '🎉 클리어!' : '⏰ 시간 종료', {
+        fontSize: '30px', color: cleared ? '#ff4444' : '#888888',
+        fontFamily: 'Arial', fontStyle: 'bold'
+    }).setOrigin(0.5).setDepth(D);
+
+    s.add.text(CW/2, CH/2 - 90, '최종 점수', {
+        fontSize: '14px', color: '#888', fontFamily: 'Arial'
+    }).setOrigin(0.5).setDepth(D);
+    s.add.text(CW/2, CH/2 - 60, String(G.score), {
+        fontSize: '52px', color: '#ffffff', fontFamily: 'Arial', fontStyle: 'bold'
+    }).setOrigin(0.5).setDepth(D);
+
+    s.add.text(CW/2, CH/2 + 20, `목표 점수: ${G.diff.targetScore}`, {
+        fontSize: '14px', color: '#555', fontFamily: 'Arial'
+    }).setOrigin(0.5).setDepth(D);
+
+    s.add.text(CW/2, CH/2 + 48, `소거 횟수: ${G.matchCount}회`, {
+        fontSize: '14px', color: '#aaa', fontFamily: 'Arial'
+    }).setOrigin(0.5).setDepth(D);
+
+    s.add.text(CW/2, CH/2 + 95, cleared ? '✨ 다음 스테이지 진행 가능!' : '😢 다시 도전해보세요!', {
+        fontSize: '15px', color: cleared ? '#00d4ff' : '#ff8888', fontFamily: 'Arial'
+    }).setOrigin(0.5).setDepth(D);
+
+    if (cleared) {
+        for (let b = 0; b < 6; b++) {
+            s.time.delayedCall(b * 120, () => {
+                for (let i = 0; i < 8; i++) {
+                    const ang = (i / 8) * Math.PI * 2;
+                    const dot = s.add.graphics().setDepth(25);
+                    const cols = [0xff4444, 0xff8800, 0xffdd44, 0x00ff88, 0x00d4ff];
+                    dot.fillStyle(cols[Phaser.Math.Between(0, cols.length - 1)], 1);
+                    dot.fillCircle(0, 0, Phaser.Math.Between(4, 9));
+                    dot.setPosition(CW/2, CH/2);
+                    const dist = Phaser.Math.Between(60, 150);
+                    s.tweens.add({
+                        targets: dot,
+                        x: CW/2 + Math.cos(ang) * dist,
+                        y: CH/2 + Math.sin(ang) * dist,
+                        alpha: 0, duration: 800,
+                        onComplete: () => dot.destroy()
+                    });
+                }
+            });
+        }
+    }
+
+    s.time.delayedCall(3000, () => {
+        GameBridge.complete({
+            score: G.score, cleared,
+            customData: { matchCount: G.matchCount }
+        });
+    });
+}
+
+// ============================================================
+// Bootstrap
+// ============================================================
+const isTestMode = !window.AndroidBridge && !window.webkit?.messageHandlers?.iOSBridge;
+if (isTestMode) {
+    document.getElementById('test-start').addEventListener('click', () => {
+        const stage     = parseInt(document.getElementById('test-stage').value) || 1;
+        const highScore = parseInt(document.getElementById('test-highscore').value) || 0;
+        let customData  = '{}';
+        try { customData = document.getElementById('test-customdata').value; } catch(e) {}
+        GameBridge.onInit({ stage, highScore, customData });
+    });
+} else {
+    document.getElementById('test-panel').classList.add('hidden');
+}
+</script>
+</body>
+</html>

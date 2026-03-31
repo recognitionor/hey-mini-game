@@ -1,0 +1,1017 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>메모리 카드 맞추기</title>
+    <style>
+        /* ============================================================
+           Base Styles
+           ============================================================ */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #0d0d1a;
+        }
+        body {
+            background: #0d0d1a;
+            touch-action: none;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+
+        /* ============================================================
+           Game Wrapper
+           ============================================================ */
+        #game-wrapper {
+            position: fixed;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        /* ============================================================
+           Test Panel
+           ============================================================ */
+        #test-panel {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(10, 10, 30, 0.98);
+            border: 1px solid #2a2a5a;
+            padding: 28px;
+            border-radius: 20px;
+            z-index: 9999;
+            min-width: 300px;
+            color: #fff;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.7);
+        }
+        #test-panel h3 {
+            margin-bottom: 8px;
+            color: #00d4ff;
+            text-align: center;
+            font-size: 22px;
+        }
+        #test-panel p {
+            text-align: center;
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 20px;
+        }
+        #test-panel label {
+            display: block;
+            margin-bottom: 14px;
+            font-size: 13px;
+            color: #aaa;
+        }
+        #test-panel input,
+        #test-panel textarea {
+            width: 100%;
+            padding: 10px;
+            margin-top: 6px;
+            border-radius: 8px;
+            border: 1px solid #2a2a5a;
+            background: #111;
+            color: #fff;
+            font-size: 14px;
+            outline: none;
+        }
+        #test-panel textarea {
+            resize: none;
+            height: 48px;
+        }
+        #test-panel button {
+            width: 100%;
+            padding: 14px;
+            margin-top: 8px;
+            background: linear-gradient(135deg, #00d4ff, #0077cc);
+            color: #000;
+            border: none;
+            border-radius: 10px;
+            font-size: 17px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+<div id="game-wrapper">
+    <!-- Test Panel: shown only in browser (no app bridge) -->
+    <div id="test-panel">
+        <h3>🃏 메모리 카드 맞추기</h3>
+        <p>같은 이모지 카드 쌍을 찾아 제거하세요!</p>
+        <label>스테이지
+            <input type="number" id="test-stage" value="1" min="1" max="20">
+        </label>
+        <label>최고점수
+            <input type="number" id="test-highscore" value="0">
+        </label>
+        <label>커스텀 데이터 (JSON)
+            <textarea id="test-customdata">{}</textarea>
+        </label>
+        <button id="test-start">게임 시작</button>
+    </div>
+</div>
+
+<!-- Phaser 3.60.0 -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.60.0/phaser.min.js"></script>
+<script>
+// ============================================================
+// GameBridge — App ↔ Game Communication
+// ============================================================
+const GameBridge = {
+    stage: 1,
+    highScore: 0,
+    customData: {},
+
+    onInit(data) {
+        this.stage     = data.stage     || 1;
+        this.highScore = data.highScore || 0;
+        this.customData = JSON.parse(data.customData || '{}');
+        document.getElementById('test-panel').classList.add('hidden');
+        initGame();
+    },
+
+    updateScore(score) {
+        if (window.AndroidBridge) {
+            AndroidBridge.updateScore(score);
+        } else if (window.webkit?.messageHandlers?.iOSBridge) {
+            webkit.messageHandlers.iOSBridge.postMessage({ type: 'updateScore', score });
+        }
+    },
+
+    complete(result) {
+        if (window.AndroidBridge) {
+            AndroidBridge.gameComplete(JSON.stringify(result));
+        } else if (window.webkit?.messageHandlers?.iOSBridge) {
+            webkit.messageHandlers.iOSBridge.postMessage({
+                type: 'gameComplete',
+                score: result.score,
+                cleared: result.cleared,
+                customData: JSON.stringify(result.customData || {})
+            });
+        } else {
+            alert(`게임 완료!\n점수: ${result.score}\n클리어: ${result.cleared ? '✅ 성공!' : '❌ 실패'}`);
+            location.reload();
+        }
+    },
+
+    saveData(data) {
+        if (window.AndroidBridge) {
+            AndroidBridge.saveData(JSON.stringify(data));
+        } else if (window.webkit?.messageHandlers?.iOSBridge) {
+            webkit.messageHandlers.iOSBridge.postMessage({ type: 'saveData', data: JSON.stringify(data) });
+        }
+    },
+
+    log(msg) {
+        console.log('[GameBridge]', msg);
+        if (window.AndroidBridge) AndroidBridge.log(msg);
+    }
+};
+window.GameBridge = GameBridge;
+
+// ============================================================
+// Game Constants
+// ============================================================
+
+// 12 fruit emojis for pairs
+const CARD_EMOJIS = ['🍎','🍌','🍊','🍇','🍓','🥝','🍒','🍑','🥭','🍈','🍍','🍉'];
+const JOKER_EMOJI = '⭐';
+
+// Canvas logical size
+const CANVAS_W = 400;
+const CANVAS_H = 700;
+
+// Card grid: 5 cols × 5 rows = 25 cards
+const GRID_COLS = 5;
+const GRID_ROWS = 5;
+
+// HUD height at top
+const HUD_H = 108;
+
+// Card layout within the playfield
+const CARD_AREA_TOP    = HUD_H + 12;
+const CARD_AREA_BOTTOM = CANVAS_H - 10;
+const CARD_AREA_LEFT   = 10;
+const CARD_AREA_RIGHT  = CANVAS_W - 10;
+
+const CARD_AREA_W = CARD_AREA_RIGHT - CARD_AREA_LEFT;
+const CARD_AREA_H = CARD_AREA_BOTTOM - CARD_AREA_TOP;
+
+// Each card: subtract gap (8px each side = 16px total per cell)
+const GAP = 8;
+const CARD_W = Math.floor((CARD_AREA_W - GAP * (GRID_COLS + 1)) / GRID_COLS);
+const CARD_H = Math.floor((CARD_AREA_H - GAP * (GRID_ROWS + 1)) / GRID_ROWS);
+
+// Card visual
+const CARD_RADIUS = 8;
+
+// Colors
+const C_BG         = 0x0d0d1a;
+const C_HUD_BG     = 0x0a0a20;
+const C_HUD_BORDER = 0x2a2a5a;
+const C_CARD_BACK  = 0x1a1a4a;
+const C_CARD_BACK2 = 0x252565;
+const C_CARD_FRONT = 0x0d2a4a;
+const C_MATCH      = 0x004422;
+const C_MATCH_BORDER = 0x00cc66;
+const C_JOKER      = 0x2a1a00;
+const C_JOKER_BORDER = 0xffcc00;
+const C_BORDER     = 0x2a3a7a;
+const C_BORDER_HOV = 0x00d4ff;
+
+// ============================================================
+// Difficulty System
+// ============================================================
+function getDifficulty(stage) {
+    return {
+        timeLimit:   Math.max(40, 120 - (stage - 1) * 8),   // 120s → 40s
+        targetScore: 100 + (stage - 1) * 60,                 // 100 → up
+        flipDelay:   Math.max(500, 800 - (stage - 1) * 30),  // ms before unmatched flip back
+    };
+}
+
+// ============================================================
+// Global State
+// ============================================================
+const G = {
+    scene:        null,
+    difficulty:   null,
+    score:        0,
+    timeLeft:     0,
+    timerEvent:   null,
+    gameOver:     false,
+
+    // Card state (25 entries)
+    cards: [],        // { emoji, isJoker, flipped, matched, removed, gfx, emojiText, row, col }
+    flipped:  [],     // indices of currently face-up cards awaiting check (max 2)
+    processing: false,
+
+    // HUD refs
+    scoreText:    null,
+    timerText:    null,
+    highText:     null,
+    matchText:    null,
+};
+
+// ============================================================
+// Init Game — create Phaser instance
+// ============================================================
+function initGame() {
+    G.difficulty = getDifficulty(GameBridge.stage);
+    G.score      = 0;
+    G.timeLeft   = G.difficulty.timeLimit;
+    G.gameOver   = false;
+    G.cards      = [];
+    G.flipped    = [];
+    G.processing = false;
+
+    new Phaser.Game({
+        type:            Phaser.AUTO,
+        width:           CANVAS_W,
+        height:          CANVAS_H,
+        backgroundColor: '#0d0d1a',
+        parent:          'game-wrapper',
+        scale: {
+            mode:       Phaser.Scale.FIT,
+            autoCenter: Phaser.Scale.CENTER_BOTH,
+        },
+        scene: {
+            preload: preloadScene,
+            create:  createScene,
+            update:  updateScene,
+        }
+    });
+}
+
+// ============================================================
+// Scene: Preload — generate textures via Graphics
+// ============================================================
+function preloadScene() {
+    // No external assets; everything is drawn with Graphics + Text
+}
+
+// ============================================================
+// Scene: Create
+// ============================================================
+function createScene() {
+    const s = this;
+    G.scene = s;
+
+    // ── Background subtle grid ─────────────────────────
+    drawBackground(s);
+
+    // ── HUD ────────────────────────────────────────────
+    buildHUD(s);
+
+    // ── Card board ─────────────────────────────────────
+    buildCards(s);
+
+    // ── Timer ──────────────────────────────────────────
+    startTimer(s);
+}
+
+// ============================================================
+// Background
+// ============================================================
+function drawBackground(s) {
+    const g = s.add.graphics();
+
+    // Subtle dot grid
+    g.fillStyle(0x111128, 1);
+    g.fillRect(0, HUD_H, CANVAS_W, CANVAS_H - HUD_H);
+
+    g.fillStyle(0x1a1a40, 0.5);
+    for (let y = HUD_H + 16; y < CANVAS_H; y += 28) {
+        for (let x = 14; x < CANVAS_W; x += 28) {
+            g.fillCircle(x, y, 1.2);
+        }
+    }
+}
+
+// ============================================================
+// HUD
+// ============================================================
+function buildHUD(s) {
+    const g = s.add.graphics();
+
+    // HUD background
+    g.fillStyle(C_HUD_BG, 0.95);
+    g.fillRoundedRect(8, 6, CANVAS_W - 16, HUD_H - 6, 12);
+    g.lineStyle(1, C_HUD_BORDER, 1);
+    g.strokeRoundedRect(8, 6, CANVAS_W - 16, HUD_H - 6, 12);
+
+    // Dividers
+    g.lineStyle(1, C_HUD_BORDER, 0.7);
+    g.lineBetween(CANVAS_W / 2, 14, CANVAS_W / 2, HUD_H - 6);
+    g.lineBetween(CANVAS_W * 0.5, 56, CANVAS_W - 8, 56);
+
+    // Column 1: Stage + Score
+    s.add.text(18, 14, `STAGE  ${GameBridge.stage}`, {
+        fontSize: '11px', color: '#00d4ff', fontFamily: 'Arial', fontStyle: 'bold'
+    });
+
+    s.add.text(18, 28, '점수', { fontSize: '11px', color: '#888', fontFamily: 'Arial' });
+    G.scoreText = s.add.text(18, 42, '0', {
+        fontSize: '32px', color: '#ffffff', fontFamily: 'Arial', fontStyle: 'bold'
+    });
+
+    const diff = G.difficulty;
+    s.add.text(18, 84, `목표: ${diff.targetScore}점`, {
+        fontSize: '11px', color: '#555', fontFamily: 'Arial'
+    });
+
+    // Column 2 left: Matched pairs counter
+    s.add.text(CANVAS_W / 2 + 10, 14, '맞춘 쌍', { fontSize: '11px', color: '#888', fontFamily: 'Arial' });
+    G.matchText = s.add.text(CANVAS_W / 2 + 10, 28, '0 / 12', {
+        fontSize: '20px', color: '#aaffcc', fontFamily: 'Arial', fontStyle: 'bold'
+    });
+
+    // Column 2 right: High score + Timer
+    s.add.text(CANVAS_W / 2 + 10, 62, '최고점수', { fontSize: '11px', color: '#888', fontFamily: 'Arial' });
+    G.highText = s.add.text(CANVAS_W / 2 + 10, 76, String(GameBridge.highScore), {
+        fontSize: '16px', color: '#FFD700', fontFamily: 'Arial', fontStyle: 'bold'
+    });
+
+    // Timer (far right)
+    s.add.text(CANVAS_W - 18, 14, '남은 시간', {
+        fontSize: '11px', color: '#888', fontFamily: 'Arial'
+    }).setOrigin(1, 0);
+
+    G.timerText = s.add.text(CANVAS_W - 18, 28, formatTime(G.timeLeft), {
+        fontSize: '28px', color: '#ff6b6b', fontFamily: 'Arial', fontStyle: 'bold'
+    }).setOrigin(1, 0);
+}
+
+function formatTime(secs) {
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return m > 0 ? `${m}:${String(s).padStart(2, '0')}` : `${s}s`;
+}
+
+// ============================================================
+// Card Building
+// ============================================================
+function buildCards(s) {
+    // Build deck: 12 pairs + 1 joker = 25
+    let deck = [];
+    for (const emoji of CARD_EMOJIS) {
+        deck.push({ emoji, isJoker: false });
+        deck.push({ emoji, isJoker: false });
+    }
+    deck.push({ emoji: JOKER_EMOJI, isJoker: true });
+
+    // Shuffle (Fisher-Yates)
+    for (let i = deck.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [deck[i], deck[j]] = [deck[j], deck[i]];
+    }
+
+    // Create card objects
+    for (let row = 0; row < GRID_ROWS; row++) {
+        for (let col = 0; col < GRID_COLS; col++) {
+            const idx  = row * GRID_COLS + col;
+            const data = deck[idx];
+
+            const cx = CARD_AREA_LEFT + GAP + col * (CARD_W + GAP) + CARD_W / 2;
+            const cy = CARD_AREA_TOP  + GAP + row * (CARD_H + GAP) + CARD_H / 2;
+
+            const card = {
+                idx,
+                emoji:   data.emoji,
+                isJoker: data.isJoker,
+                flipped:    false,
+                matched:    false,
+                removed:    false,
+                row,
+                col,
+                cx,
+                cy,
+                // Phaser objects
+                gfx:       null,
+                emojiText: null,
+                // Flip tween state
+                flipPhase: 0,   // 0 = back, 1 = transitioning to front, 2 = front
+            };
+
+            // Graphics for card background/border
+            card.gfx = s.add.graphics();
+
+            // Emoji text (hidden until flipped)
+            const fontSize = Math.min(CARD_W, CARD_H) * 0.48;
+            card.emojiText = s.add.text(cx, cy, data.emoji, {
+                fontSize: `${Math.floor(fontSize)}px`,
+                fontFamily: 'Arial',
+            }).setOrigin(0.5).setAlpha(0).setDepth(5);
+
+            drawCardBack(card);
+
+            // Interactive zone
+            const zone = s.add.zone(cx, cy, CARD_W, CARD_H)
+                .setInteractive({ useHandCursor: false })
+                .setDepth(10);
+
+            zone.on('pointerdown', () => onCardTap(idx));
+
+            card.zone = zone;
+            G.cards.push(card);
+        }
+    }
+}
+
+// ============================================================
+// Card Drawing Helpers
+// ============================================================
+function drawCardBack(card) {
+    const g = card.gfx;
+    g.clear();
+    if (card.removed) return;
+
+    const x = card.cx - CARD_W / 2;
+    const y = card.cy - CARD_H / 2;
+
+    // Shadow
+    g.fillStyle(0x000000, 0.22);
+    g.fillRoundedRect(x + 2, y + 3, CARD_W, CARD_H, CARD_RADIUS);
+
+    // Card fill (gradient sim: two rects)
+    g.fillStyle(C_CARD_BACK, 1);
+    g.fillRoundedRect(x, y, CARD_W, CARD_H, CARD_RADIUS);
+    g.fillStyle(C_CARD_BACK2, 0.4);
+    g.fillRoundedRect(x, y, CARD_W, CARD_H / 2, CARD_RADIUS);
+
+    // Border
+    g.lineStyle(1.5, C_BORDER, 1);
+    g.strokeRoundedRect(x, y, CARD_W, CARD_H, CARD_RADIUS);
+
+    // Inner pattern (subtle diamond dots)
+    g.fillStyle(0x3a3a8a, 0.35);
+    const dotR = 2.5;
+    const cx = card.cx;
+    const cy = card.cy;
+    g.fillCircle(cx,            cy,            dotR);
+    g.fillCircle(cx - CARD_W * 0.22, cy - CARD_H * 0.22, dotR * 0.7);
+    g.fillCircle(cx + CARD_W * 0.22, cy - CARD_H * 0.22, dotR * 0.7);
+    g.fillCircle(cx - CARD_W * 0.22, cy + CARD_H * 0.22, dotR * 0.7);
+    g.fillCircle(cx + CARD_W * 0.22, cy + CARD_H * 0.22, dotR * 0.7);
+
+    // Question mark
+    const scene = G.scene;
+    // (drawn as text overlay — handled in emojiText when back = show '?')
+}
+
+function drawCardFront(card) {
+    const g = card.gfx;
+    g.clear();
+    if (card.removed) return;
+
+    const x = card.cx - CARD_W / 2;
+    const y = card.cy - CARD_H / 2;
+
+    // Shadow
+    g.fillStyle(0x000000, 0.22);
+    g.fillRoundedRect(x + 2, y + 3, CARD_W, CARD_H, CARD_RADIUS);
+
+    // Fill
+    if (card.isJoker) {
+        g.fillStyle(C_JOKER, 1);
+    } else if (card.matched) {
+        g.fillStyle(C_MATCH, 1);
+    } else {
+        g.fillStyle(C_CARD_FRONT, 1);
+    }
+    g.fillRoundedRect(x, y, CARD_W, CARD_H, CARD_RADIUS);
+
+    // Subtle top shine
+    g.fillStyle(0xffffff, 0.06);
+    g.fillRoundedRect(x + 2, y + 2, CARD_W - 4, CARD_H * 0.4, CARD_RADIUS);
+
+    // Border
+    let borderColor = C_BORDER_HOV;
+    if (card.matched) borderColor = C_MATCH_BORDER;
+    if (card.isJoker) borderColor = C_JOKER_BORDER;
+    g.lineStyle(2, borderColor, 1);
+    g.strokeRoundedRect(x, y, CARD_W, CARD_H, CARD_RADIUS);
+
+    // Inner glow ring for matched
+    if (card.matched) {
+        g.lineStyle(1, C_MATCH_BORDER, 0.35);
+        g.strokeRoundedRect(x + 3, y + 3, CARD_W - 6, CARD_H - 6, CARD_RADIUS - 2);
+    }
+}
+
+function drawCardMatched(card) {
+    card.matched = true;
+    drawCardFront(card);
+}
+
+// ============================================================
+// Card Tap Handler
+// ============================================================
+function onCardTap(idx) {
+    if (G.gameOver || G.processing) return;
+
+    const card = G.cards[idx];
+    if (!card || card.flipped || card.removed || card.matched) return;
+    if (G.flipped.includes(idx)) return;
+
+    // Flip this card face up
+    flipCardUp(idx);
+    G.flipped.push(idx);
+
+    // Joker: flip alone → immediately dismiss
+    if (card.isJoker) {
+        G.processing = true;
+        G.scene.time.addEvent({
+            delay: 900,
+            callback: () => {
+                flipCardDown(idx);
+                G.flipped = G.flipped.filter(i => i !== idx);
+                G.processing = false;
+                // Add small bonus for finding joker
+                addScore(5);
+                fxScorePop(card.cx, card.cy, '+5 JOKER!', '#ffcc00');
+            }
+        });
+        return;
+    }
+
+    // Two cards flipped — check match
+    if (G.flipped.length === 2) {
+        G.processing = true;
+
+        const [i1, i2] = G.flipped;
+        const c1 = G.cards[i1];
+        const c2 = G.cards[i2];
+
+        if (c1.emoji === c2.emoji) {
+            // Match!
+            G.scene.time.addEvent({
+                delay: 300,
+                callback: () => {
+                    markMatched(i1);
+                    markMatched(i2);
+                    G.flipped = [];
+                    G.processing = false;
+
+                    const pts = 20 + Math.floor(G.timeLeft * 0.5);
+                    addScore(pts);
+                    fxMatchBurst(c1.cx, c1.cy, c2.cx, c2.cy);
+                    fxScorePop(
+                        (c1.cx + c2.cx) / 2,
+                        (c1.cy + c2.cy) / 2,
+                        `+${pts}`,
+                        '#00ffaa'
+                    );
+
+                    updateMatchCounter();
+
+                    // All 12 pairs matched → clear!
+                    const matchedPairs = G.cards.filter(c => c.matched && !c.isJoker).length / 2;
+                    if (matchedPairs >= 12) {
+                        G.scene.time.addEvent({ delay: 600, callback: () => endGame(true) });
+                    }
+                }
+            });
+        } else {
+            // No match — flip back after delay
+            const delay = G.difficulty.flipDelay;
+            G.scene.time.addEvent({
+                delay,
+                callback: () => {
+                    flipCardDown(i1);
+                    flipCardDown(i2);
+                    G.flipped = [];
+                    G.processing = false;
+                }
+            });
+        }
+    }
+}
+
+// ============================================================
+// Card Flip Animation (scaleX tween)
+// ============================================================
+function flipCardUp(idx) {
+    const card = G.cards[idx];
+    card.flipped = true;
+
+    const s = G.scene;
+
+    // Phase 1: scale X → 0 (fold)
+    s.tweens.add({
+        targets:  { val: 1 },
+        val:      0,
+        duration: 120,
+        ease:     'Linear',
+        onUpdate: (tween, target) => {
+            const scl = target.val;
+            card.gfx.setScale(scl, 1);
+            card.emojiText.setScale(scl, 1);
+        },
+        onComplete: () => {
+            // Swap to front visual at midpoint
+            drawCardFront(card);
+            card.emojiText.setAlpha(1).setText(card.emoji);
+
+            // Phase 2: scale X 0 → 1 (unfold)
+            s.tweens.add({
+                targets:  { val: 0 },
+                val:      1,
+                duration: 120,
+                ease:     'Linear',
+                onUpdate: (tween, target) => {
+                    const scl = target.val;
+                    card.gfx.setScale(scl, 1);
+                    card.emojiText.setScale(scl, 1);
+                },
+                onComplete: () => {
+                    card.gfx.setScale(1, 1);
+                    card.emojiText.setScale(1, 1);
+                }
+            });
+        }
+    });
+}
+
+function flipCardDown(idx) {
+    const card = G.cards[idx];
+    card.flipped = false;
+
+    const s = G.scene;
+
+    // Phase 1: scale X → 0
+    s.tweens.add({
+        targets:  { val: 1 },
+        val:      0,
+        duration: 120,
+        ease:     'Linear',
+        onUpdate: (tween, target) => {
+            const scl = target.val;
+            card.gfx.setScale(scl, 1);
+            card.emojiText.setScale(scl, 1);
+        },
+        onComplete: () => {
+            // Swap to back visual
+            drawCardBack(card);
+            card.emojiText.setAlpha(0);
+
+            // Phase 2: scale X 0 → 1
+            s.tweens.add({
+                targets:  { val: 0 },
+                val:      1,
+                duration: 120,
+                ease:     'Linear',
+                onUpdate: (tween, target) => {
+                    const scl = target.val;
+                    card.gfx.setScale(scl, 1);
+                    card.emojiText.setScale(scl, 1);
+                },
+                onComplete: () => {
+                    card.gfx.setScale(1, 1);
+                    card.emojiText.setScale(1, 1);
+                }
+            });
+        }
+    });
+}
+
+function markMatched(idx) {
+    const card = G.cards[idx];
+    card.matched = true;
+    card.zone.disableInteractive();
+    drawCardMatched(card);
+
+    // Gentle pulse scale
+    G.scene.tweens.add({
+        targets:  card.emojiText,
+        scaleX:   1.25,
+        scaleY:   1.25,
+        duration: 160,
+        yoyo:     true,
+        ease:     'Sine.easeOut',
+    });
+}
+
+// ============================================================
+// Effects
+// ============================================================
+function fxMatchBurst(x1, y1, x2, y2) {
+    const s  = G.scene;
+    const mx = (x1 + x2) / 2;
+    const my = (y1 + y2) / 2;
+
+    const g = s.add.graphics().setDepth(15);
+    let frame = 0;
+    const total = 18;
+
+    s.time.addEvent({
+        delay: 16,
+        repeat: total - 1,
+        callback: () => {
+            frame++;
+            g.clear();
+            const prog = frame / total;
+            const alpha = (1 - prog) * 0.9;
+
+            // Expanding glow circle
+            g.fillStyle(0x00ffaa, alpha * 0.3);
+            g.fillCircle(mx, my, 18 + prog * 55);
+
+            // Ring
+            g.lineStyle(3, 0x00ffaa, alpha * 0.8);
+            g.strokeCircle(mx, my, 14 + prog * 60);
+
+            // Small star particles
+            const count = 6;
+            for (let i = 0; i < count; i++) {
+                const angle = (i / count) * Math.PI * 2 + prog * 1.5;
+                const dist  = 10 + prog * 50;
+                const px    = mx + Math.cos(angle) * dist;
+                const py    = my + Math.sin(angle) * dist;
+                const pr    = (1 - prog) * 5;
+                g.fillStyle(0xffffff, alpha * 0.7);
+                g.fillCircle(px, py, pr);
+            }
+
+            if (frame >= total) g.destroy();
+        }
+    });
+
+    // Also animate connecting line briefly
+    const lineGfx = s.add.graphics().setDepth(14);
+    s.tweens.add({
+        targets:  { alpha: 1 },
+        alpha:    0,
+        duration: 300,
+        onUpdate: (tween, target) => {
+            lineGfx.clear();
+            lineGfx.lineStyle(2, 0x00ffaa, target.alpha * 0.6);
+            lineGfx.lineBetween(x1, y1, x2, y2);
+        },
+        onComplete: () => lineGfx.destroy(),
+    });
+}
+
+function fxScorePop(x, y, text, color) {
+    const pop = G.scene.add.text(x, y, text, {
+        fontSize:        '18px',
+        color:           color || '#FFD700',
+        fontFamily:      'Arial',
+        fontStyle:       'bold',
+        stroke:          '#000000',
+        strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(20);
+
+    G.scene.tweens.add({
+        targets:  pop,
+        y:        y - 55,
+        alpha:    0,
+        duration: 750,
+        ease:     'Power2',
+        onComplete: () => pop.destroy(),
+    });
+}
+
+function fxTimerWarning(s) {
+    // Red flash on timer text
+    s.tweens.add({
+        targets:  G.timerText,
+        alpha:    0.2,
+        duration: 180,
+        yoyo:     true,
+        repeat:   2,
+        ease:     'Linear',
+        onComplete: () => G.timerText.setAlpha(1),
+    });
+}
+
+// ============================================================
+// Score
+// ============================================================
+function addScore(pts) {
+    G.score += pts;
+    if (G.scoreText) G.scoreText.setText(String(G.score));
+    GameBridge.updateScore(G.score);
+}
+
+function updateMatchCounter() {
+    const matchedPairs = G.cards.filter(c => c.matched && !c.isJoker).length / 2;
+    if (G.matchText) G.matchText.setText(`${matchedPairs} / 12`);
+}
+
+// ============================================================
+// Timer
+// ============================================================
+function startTimer(s) {
+    G.timerEvent = s.time.addEvent({
+        delay:    1000,
+        loop:     true,
+        callback: () => {
+            if (G.gameOver) return;
+
+            G.timeLeft--;
+            if (G.timerText) {
+                G.timerText.setText(formatTime(G.timeLeft));
+
+                // Color shift as time runs low
+                if (G.timeLeft <= 10) {
+                    G.timerText.setStyle({ color: '#ff2222' });
+                    fxTimerWarning(s);
+                } else if (G.timeLeft <= 20) {
+                    G.timerText.setStyle({ color: '#ff8800' });
+                }
+            }
+
+            if (G.timeLeft <= 0) {
+                G.timerEvent.destroy();
+                endGame(false);
+            }
+        }
+    });
+}
+
+// ============================================================
+// Scene: Update (per-frame)
+// ============================================================
+function updateScene() {
+    // Nothing needed per-frame — all driven by tweens/events
+}
+
+// ============================================================
+// End Game
+// ============================================================
+function endGame(timeUp_or_cleared) {
+    // Accepts boolean: true = all pairs matched (cleared), false = time up
+    if (G.gameOver) return;
+    G.gameOver   = true;
+    G.processing = true;
+    if (G.timerEvent) G.timerEvent.destroy();
+
+    const matchedPairs = G.cards.filter(c => c.matched && !c.isJoker).length / 2;
+    const cleared      = G.score >= G.difficulty.targetScore;
+
+    showEndOverlay(cleared, matchedPairs);
+
+    G.scene.time.addEvent({
+        delay: 3000,
+        callback: () => {
+            GameBridge.complete({
+                score:   G.score,
+                cleared: cleared,
+                customData: {
+                    stage:        GameBridge.stage,
+                    matchedPairs: matchedPairs,
+                    timeLeft:     G.timeLeft,
+                }
+            });
+        }
+    });
+}
+
+// ============================================================
+// End Overlay
+// ============================================================
+function showEndOverlay(cleared, matchedPairs) {
+    const s = G.scene;
+
+    // Dim overlay
+    const ov = s.add.graphics().setDepth(25);
+    ov.fillStyle(0x000000, 0.80);
+    ov.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+    // Panel
+    const pw = 300, ph = 230;
+    const px = (CANVAS_W - pw) / 2;
+    const py = (CANVAS_H - ph) / 2;
+
+    ov.fillStyle(0x0d0d2a, 1);
+    ov.fillRoundedRect(px, py, pw, ph, 18);
+    ov.lineStyle(2, cleared ? 0x00ccff : 0x663333, 1);
+    ov.strokeRoundedRect(px, py, pw, ph, 18);
+
+    // Title
+    const titleStr  = cleared ? 'CLEAR!' : 'TIME UP';
+    const titleColor = cleared ? '#00d4ff' : '#ff4444';
+    s.add.text(CANVAS_W / 2, py + 38, titleStr, {
+        fontSize:        '40px',
+        color:           titleColor,
+        fontFamily:      'Arial',
+        fontStyle:       'bold',
+        stroke:          '#000',
+        strokeThickness: 4,
+    }).setOrigin(0.5).setDepth(26);
+
+    // Score
+    s.add.text(CANVAS_W / 2, py + 90, `점수: ${G.score}`, {
+        fontSize:   '28px',
+        color:      '#ffffff',
+        fontFamily: 'Arial',
+        fontStyle:  'bold',
+    }).setOrigin(0.5).setDepth(26);
+
+    // Sub info
+    s.add.text(CANVAS_W / 2, py + 128, `맞춘 쌍: ${matchedPairs} / 12`, {
+        fontSize:   '16px',
+        color:      '#aaa',
+        fontFamily: 'Arial',
+    }).setOrigin(0.5).setDepth(26);
+
+    // Clear status
+    const statusStr   = cleared ? '스테이지 클리어!' : `목표: ${G.difficulty.targetScore}점`;
+    const statusColor = cleared ? '#FFD700'          : '#777';
+    s.add.text(CANVAS_W / 2, py + 158, statusStr, {
+        fontSize:   '17px',
+        color:      statusColor,
+        fontFamily: 'Arial',
+    }).setOrigin(0.5).setDepth(26);
+
+    // Footer
+    s.add.text(CANVAS_W / 2, py + 205, '잠시 후 결과가 전송됩니다...', {
+        fontSize:   '11px',
+        color:      '#444',
+        fontFamily: 'Arial',
+    }).setOrigin(0.5).setDepth(26);
+
+    // Particle burst if cleared
+    if (cleared) {
+        for (let i = 0; i < 5; i++) {
+            s.time.addEvent({
+                delay: i * 200,
+                callback: () => {
+                    const rx = Phaser.Math.Between(60, CANVAS_W - 60);
+                    const ry = Phaser.Math.Between(100, CANVAS_H - 100);
+                    fxMatchBurst(rx, ry, rx, ry);
+                }
+            });
+        }
+    }
+}
+
+// ============================================================
+// Bootstrap
+// ============================================================
+const isTest = !window.AndroidBridge && !window.webkit?.messageHandlers?.iOSBridge;
+if (isTest) {
+    document.getElementById('test-start').onclick = () => {
+        GameBridge.onInit({
+            stage:      parseInt(document.getElementById('test-stage').value)     || 1,
+            highScore:  parseInt(document.getElementById('test-highscore').value) || 0,
+            customData: document.getElementById('test-customdata').value          || '{}'
+        });
+    };
+} else {
+    document.getElementById('test-panel').classList.add('hidden');
+}
+</script>
+</body>
+</html>

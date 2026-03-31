@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Youngssoo - 앱 지원 및 고객센터</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;700&display=swap');
+        
+        :root {
+            --bg-color: #0B0C10;
+            --container-bg: #1F2833;
+            --text-main: #C5C6C7;
+            --accent: #66FCF1;
+            --accent-dark: #45A29E;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            font-family: 'Pretendard', sans-serif;
+            margin: 0;
+            padding: 0;
+            line-height: 1.6;
+        }
+
+        .header {
+            background: linear-gradient(135deg, var(--bg-color) 0%, var(--container-bg) 100%);
+            padding: 60px 20px;
+            text-align: center;
+            border-bottom: 1px solid var(--accent-dark);
+        }
+
+        .header h1 {
+            color: var(--accent);
+            margin: 0;
+            font-size: 2.5rem;
+        }
+
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 0 20px;
+        }
+
+        .card {
+            background-color: var(--container-bg);
+            border-radius: 12px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            border: 1px solid rgba(102, 252, 241, 0.1);
+        }
+
+        h2 {
+            color: white;
+            border-bottom: 2px solid var(--accent-dark);
+            padding-bottom: 10px;
+            display: inline-block;
+        }
+
+        .contact-email {
+            font-size: 1.2rem;
+            color: var(--accent);
+            font-weight: bold;
+            display: inline-block;
+            margin: 20px 0;
+            padding: 10px 20px;
+            background: rgba(102, 252, 241, 0.1);
+            border-radius: 8px;
+        }
+
+        .faq-item {
+            margin-bottom: 20px;
+        }
+
+        .faq-q {
+            color: white;
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+
+        .faq-a {
+            color: var(--text-main);
+            padding-left: 15px;
+            border-left: 3px solid var(--accent-dark);
+        }
+
+        footer {
+            text-align: center;
+            padding: 40px 20px;
+            opacity: 0.6;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>Youngssoo 고객 지원실</h1>
+        <p>앱을 사용하시며 궁금한 점이나 문제가 발생하셨나요? 저희가 도와드리겠습니다.</p>
+    </div>
+
+    <div class="container">
+        <div class="card">
+            <h2>📞 문의하기 (Contact Us)</h2>
+            <p>앱 사용 중 버그를 발견하셨거나 기능 개선에 대한 건의가 있으시다면 아래 이메일로 연락해 주세요.</p>
+            <div class="contact-email">master@bium-place.com</div>
+            <p>(영업일 기준 24시간 이내에 답변을 드립니다.)</p>
+        </div>
+
+        <div class="card">
+            <h2>❓ 자주 묻는 질문 (FAQ)</h2>
+            
+            <div class="faq-item">
+                <div class="faq-q">Q. 미니게임을 하려면 어떻게 해야 하나요?</div>
+                <div class="faq-a">A. 단어 퀴즈나 수학 배틀 등 학습 코스를 완료하시면 포인트를 획득할 수 있습니다. 획득한 포인트로 게임 섹션에서 다양한 미니게임을 즐길 수 있습니다.</div>
+            </div>
+
+            <div class="faq-item">
+                <div class="faq-q">Q. 앱을 삭제하면 데이터가 날아가나요?</div>
+                <div class="faq-a">A. Youngssoo는 소셜 로그인(구글, 애플, 카카오, 네이버)을 통해 계정이 연동됩니다. 앱을 삭제하더라도 동일한 계정으로 로그인하면 언제든 학습 기록과 포인트를 복구할 수 있습니다.</div>
+            </div>
+
+            <div class="faq-item">
+                <div class="faq-q">Q. 계정 탈퇴는 어떻게 하나요?</div>
+                <div class="faq-a">A. 앱 내 '내 정보' 설정 화면의 하단에 있는 '회원 탈퇴' 버튼을 누르시면, 서버에 저장된 회원님의 모든 개인정보와 학습 데이터가 즉시 파기되며 복구할 수 없습니다.</div>
+            </div>
+        </div>
+    </div>
+
+    <footer>
+        <p>&copy; 2026 Youngssoo Project. All rights reserved.</p>
+        <p>App Store Support Information</p>
+    </footer>
+
+</body>
+</html>
