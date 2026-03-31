@@ -1,0 +1,1274 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>별빛 마법사</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; touch-action:none; user-select:none; }
+    html, body { width:100%; height:100%; overflow:hidden; background:#150828; }
+    #canvas { position:fixed; inset:0; width:100%; height:100%; display:block; }
+
+    /* ─── 테스트 패널 ─── */
+    #test-panel {
+      position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+      background:rgba(12,4,30,0.97);
+      border:2px solid #c86eff;
+      padding:28px 24px; border-radius:24px; z-index:9999;
+      min-width:300px; color:#fff;
+      box-shadow:0 0 60px rgba(180,80,255,0.4), 0 20px 50px rgba(0,0,0,0.9);
+    }
+    #test-panel h3 { text-align:center; font-size:26px; color:#ffd700; margin-bottom:4px; }
+    #test-panel .sub { text-align:center; font-size:13px; color:#c86eff; margin-bottom:22px; }
+    #test-panel label { display:block; margin-bottom:14px; font-size:13px; color:#bbb; }
+    #test-panel input, #test-panel textarea {
+      width:100%; padding:10px; margin-top:5px; border-radius:10px;
+      border:1px solid #4a1a7a; background:#1a0830; color:#fff; font-size:14px; outline:none;
+    }
+    #test-panel textarea { resize:none; height:44px; }
+    #test-panel button {
+      width:100%; padding:15px; margin-top:10px;
+      background:linear-gradient(135deg,#ff6eb4,#c86eff,#ffd700);
+      color:#1a0028; border:none; border-radius:14px;
+      font-size:18px; font-weight:bold; cursor:pointer;
+      box-shadow:0 4px 20px rgba(200,110,255,0.5);
+    }
+    .hidden { display:none !important; }
+  </style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+
+<div id="test-panel">
+  <h3>⭐ 별빛 마법사</h3>
+  <p class="sub">귀여운 몬스터를 물리쳐요!</p>
+  <label>스테이지
+    <input type="number" id="t-stage" value="1" min="1" max="20">
+  </label>
+  <label>최고점수
+    <input type="number" id="t-score" value="0">
+  </label>
+  <label>커스텀 데이터 (JSON)
+    <textarea id="t-custom">{}</textarea>
+  </label>
+  <button id="t-start">🌟 게임 시작!</button>
+</div>
+
+<script>
+'use strict';
+
+// ═══════════════════════════════════════════
+//  GameBridge
+// ═══════════════════════════════════════════
+const GameBridge = {
+  stage:1, highScore:0, customData:{},
+  onInit(data) {
+    this.stage     = data.stage     || 1;
+    this.highScore = data.highScore || 0;
+    this.customData = JSON.parse(data.customData || '{}');
+    document.getElementById('test-panel').classList.add('hidden');
+    startGame();
+  },
+  updateScore(s) {
+    if (window.AndroidBridge) AndroidBridge.updateScore(s);
+    else if (window.webkit?.messageHandlers?.iOSBridge)
+      webkit.messageHandlers.iOSBridge.postMessage({type:'updateScore', score:s});
+  },
+  complete(r) {
+    const payload = JSON.stringify(r);
+    if (window.AndroidBridge) AndroidBridge.gameComplete(payload);
+    else if (window.webkit?.messageHandlers?.iOSBridge)
+      webkit.messageHandlers.iOSBridge.postMessage({type:'gameComplete', score:r.score, cleared:r.cleared, customData:JSON.stringify(r.customData||{})});
+    else { alert(`게임 완료!\n점수: ${r.score}\n클리어: ${r.cleared?'✅':'❌'}`); location.reload(); }
+  },
+  log(m) { console.log('[GB]',m); if(window.AndroidBridge) AndroidBridge.log(m); }
+};
+
+// ─── 테스트 모드 ───
+const isTestMode = !window.AndroidBridge && !window.webkit?.messageHandlers?.iOSBridge;
+if (isTestMode) {
+  document.getElementById('t-start').onclick = () => {
+    GameBridge.onInit({
+      stage:    parseInt(document.getElementById('t-stage').value)  || 1,
+      highScore:parseInt(document.getElementById('t-score').value)  || 0,
+      customData: document.getElementById('t-custom').value || '{}'
+    });
+  };
+} else {
+  document.getElementById('test-panel').classList.add('hidden');
+}
+
+// ═══════════════════════════════════════════
+//  오디오 (Web Audio API — 칩튠 사운드)
+// ═══════════════════════════════════════════
+const SFX = (() => {
+  let _ctx = null;
+  function ctx() {
+    if (!_ctx) _ctx = new (window.AudioContext || window.webkitAudioContext)();
+    if (_ctx.state === 'suspended') _ctx.resume();
+    return _ctx;
+  }
+  function tone(freq, type, dur, vol=0.2, start=0) {
+    try {
+      const c = ctx();
+      const osc = c.createOscillator();
+      const g   = c.createGain();
+      osc.connect(g); g.connect(c.destination);
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, c.currentTime + start);
+      osc.frequency.exponentialRampToValueAtTime(freq * 0.7, c.currentTime + start + dur);
+      g.gain.setValueAtTime(vol, c.currentTime + start);
+      g.gain.exponentialRampToValueAtTime(0.001, c.currentTime + start + dur);
+      osc.start(c.currentTime + start);
+      osc.stop(c.currentTime  + start + dur + 0.01);
+    } catch(e) {}
+  }
+
+  // 배경 음악 (밝은 동요 스타일)
+  const BGM_NOTES = [
+    523,659,784,880, 784,659,523,392,
+    440,523,659,784, 659,523,440,392,
+    523,659,784,1047,784,659,523,440,
+    523,440,392,330, 392,440,523,0
+  ];
+  let bgmTimer = null;
+  let bgmPos = 0;
+
+  function playBGMNote() {
+    const freq = BGM_NOTES[bgmPos % BGM_NOTES.length];
+    if (freq > 0) {
+      tone(freq,    'triangle', 0.22, 0.07);
+      tone(freq*2,  'sine',     0.12, 0.03);
+    }
+    bgmPos++;
+  }
+
+  return {
+    shoot()   { tone(880,'sine',0.07,0.12); },
+    hit()     { tone(440,'square',0.05,0.1); },
+    enemyDie(){ tone(300,'sawtooth',0.08,0.18); tone(200,'sawtooth',0.12,0.15,0.08); },
+    hurt()    { tone(220,'sawtooth',0.15,0.25); },
+    collect() { tone(1047,'sine',0.08,0.18); },
+    levelUp() {
+      [523,659,784,1047,1319].forEach((f,i) => tone(f,'sine',0.18,0.25,i*0.1));
+    },
+    bossDie() {
+      [880,784,659,523,440,330].forEach((f,i) => tone(f,'triangle',0.2,0.3,i*0.09));
+    },
+    startBGM() {
+      if (bgmTimer) clearInterval(bgmTimer);
+      bgmPos = 0;
+      bgmTimer = setInterval(playBGMNote, 220);
+    },
+    stopBGM() {
+      if (bgmTimer) { clearInterval(bgmTimer); bgmTimer = null; }
+    }
+  };
+})();
+
+// ═══════════════════════════════════════════
+//  캔버스 & 크기
+// ═══════════════════════════════════════════
+const canvas = document.getElementById('canvas');
+const ctx    = canvas.getContext('2d');
+let W = canvas.width  = window.innerWidth;
+let H = canvas.height = window.innerHeight;
+window.addEventListener('resize', () => {
+  W = canvas.width  = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+});
+
+// ═══════════════════════════════════════════
+//  난이도
+// ═══════════════════════════════════════════
+function getDifficulty(stage) {
+  return {
+    timeLimit:    Math.max(60, 180 - (stage - 1) * 10),
+    targetScore:  100 + (stage - 1) * 80,
+    enemySpeed:   0.9 + (stage - 1) * 0.12,
+    spawnRate:    Math.max(0.4, 2.2 - (stage - 1) * 0.12),
+    enemyHpMul:   1 + (stage - 1) * 0.35,
+    bossInterval: 30,
+  };
+}
+
+// ═══════════════════════════════════════════
+//  유틸
+// ═══════════════════════════════════════════
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x+r, y);
+  ctx.lineTo(x+w-r, y); ctx.arcTo(x+w, y, x+w, y+r, r);
+  ctx.lineTo(x+w, y+h-r); ctx.arcTo(x+w, y+h, x+w-r, y+h, r);
+  ctx.lineTo(x+r, y+h); ctx.arcTo(x, y+h, x, y+h-r, r);
+  ctx.lineTo(x, y+r); ctx.arcTo(x, y, x+r, y, r);
+  ctx.closePath();
+}
+
+function drawStar(x, y, pts, outerR, innerR, rot) {
+  ctx.beginPath();
+  for (let i = 0; i < pts * 2; i++) {
+    const r = i % 2 === 0 ? outerR : innerR;
+    const a = (i / pts) * Math.PI - Math.PI / 2 + rot;
+    i === 0 ? ctx.moveTo(x + Math.cos(a)*r, y + Math.sin(a)*r)
+            : ctx.lineTo(x + Math.cos(a)*r, y + Math.sin(a)*r);
+  }
+  ctx.closePath();
+}
+
+// ═══════════════════════════════════════════
+//  파티클
+// ═══════════════════════════════════════════
+class Particle {
+  constructor(x,y,vx,vy,color,life,size=4) {
+    Object.assign(this, {x,y,vx,vy,color,life,maxLife:life,size});
+  }
+  update(dt) {
+    this.x += this.vx * dt; this.y += this.vy * dt;
+    this.vy += 120 * dt;
+    this.life -= dt;
+  }
+  draw(ox, oy) {
+    const a = Math.max(0, this.life / this.maxLife);
+    ctx.save();
+    ctx.globalAlpha = a;
+    ctx.fillStyle = this.color;
+    ctx.shadowBlur = 8; ctx.shadowColor = this.color;
+    ctx.beginPath();
+    ctx.arc(this.x - ox, this.y - oy, this.size * a + 0.5, 0, Math.PI*2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+// ═══════════════════════════════════════════
+//  XP 보석
+// ═══════════════════════════════════════════
+const GEM_COLORS = ['#ff6eb4','#ffd700','#a8ff78','#00e5ff','#c86eff'];
+let gemId = 0;
+class XPGem {
+  constructor(x, y, value) {
+    this.id = gemId++;
+    this.x=x; this.y=y; this.value=value;
+    this.r = 5 + value * 1.5;
+    this.life = 12;
+    this.bobT = Math.random() * Math.PI * 2;
+    this.color = GEM_COLORS[Math.min(value - 1, GEM_COLORS.length - 1)];
+    this.collected = false;
+  }
+  update(dt, px, py) {
+    this.life  -= dt;
+    this.bobT  += dt * 3.5;
+    const dx = px - this.x, dy = py - this.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist < 140 && dist > 0.1) {
+      const pull = 280 * (1 - dist / 140);
+      this.x += (dx / dist) * pull * dt;
+      this.y += (dy / dist) * pull * dt;
+    }
+  }
+  draw(ox, oy) {
+    const sx = this.x - ox, sy = this.y - oy + Math.sin(this.bobT) * 3;
+    ctx.save();
+    ctx.shadowBlur = 14; ctx.shadowColor = this.color;
+    ctx.fillStyle = this.color;
+    ctx.beginPath();
+    ctx.moveTo(sx,          sy - this.r);
+    ctx.lineTo(sx + this.r * 0.55, sy);
+    ctx.lineTo(sx,          sy + this.r);
+    ctx.lineTo(sx - this.r * 0.55, sy);
+    ctx.closePath();
+    ctx.fill();
+    // 하이라이트
+    ctx.fillStyle = 'rgba(255,255,255,0.45)';
+    ctx.beginPath();
+    ctx.moveTo(sx - this.r*0.2, sy - this.r*0.55);
+    ctx.lineTo(sx + this.r*0.2, sy - this.r*0.1);
+    ctx.lineTo(sx - this.r*0.05, sy - this.r*0.1);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+// ═══════════════════════════════════════════
+//  총알
+// ═══════════════════════════════════════════
+class Bullet {
+  constructor(x, y, vx, vy, dmg, r, color, shape='circle') {
+    Object.assign(this, {x, y, vx, vy, dmg, r, color, shape});
+    this.alive = true; this.t = 0;
+    this.sx = x; this.sy = y;
+    this.maxDist = 900;
+  }
+  update(dt) {
+    this.x += this.vx * dt; this.y += this.vy * dt;
+    this.t  += dt;
+    if (Math.hypot(this.x - this.sx, this.y - this.sy) > this.maxDist) this.alive = false;
+  }
+  draw(ox, oy) {
+    const sx = this.x - ox, sy = this.y - oy;
+    ctx.save();
+    ctx.shadowBlur = 12; ctx.shadowColor = this.color;
+    ctx.fillStyle   = this.color;
+    if (this.shape === 'star') {
+      drawStar(sx, sy, 5, this.r, this.r * 0.45, this.t * 5);
+      ctx.fill();
+    } else if (this.shape === 'triangle') {
+      ctx.beginPath();
+      ctx.moveTo(sx, sy - this.r);
+      ctx.lineTo(sx + this.r*0.87, sy + this.r*0.5);
+      ctx.lineTo(sx - this.r*0.87, sy + this.r*0.5);
+      ctx.closePath(); ctx.fill();
+    } else {
+      ctx.beginPath(); ctx.arc(sx, sy, this.r, 0, Math.PI*2); ctx.fill();
+    }
+    ctx.restore();
+  }
+}
+
+// ═══════════════════════════════════════════
+//  회전 오브 (아우라 무기)
+// ═══════════════════════════════════════════
+class OrbAura {
+  constructor(player) {
+    this.player = player;
+    this.level   = 1;
+    this.count   = 3;
+    this.r       = 72;
+    this.dmg     = 18;
+    this.speed   = 1.8;
+    this.t       = 0;
+    this.coolMap = new Map();   // enemy id → last hit time
+    this.orbColors = ['#ff6eb4','#ffd700','#a8ff78','#00e5ff','#c86eff'];
+  }
+  levelUp() {
+    this.level++;
+    this.dmg   += 12;
+    this.r     += 8;
+    if (this.level % 2 === 0) this.count++;
+  }
+  update(dt, enemies) {
+    this.t += dt * this.speed;
+    for (let i = 0; i < this.count; i++) {
+      const angle = this.t + (i / this.count) * Math.PI * 2;
+      const ox = this.player.x + Math.cos(angle) * this.r;
+      const oy = this.player.y + Math.sin(angle) * this.r;
+      for (const e of enemies) {
+        if (!e.alive) continue;
+        const dist = Math.hypot(ox - e.x, oy - e.y);
+        if (dist < 20 + e.r) {
+          const key = `${e.id}_${i}`;
+          const last = this.coolMap.get(key) || -99;
+          if (this.t - last > 0.55) {
+            e.takeDamage(this.dmg);
+            this.coolMap.set(key, this.t);
+          }
+        }
+      }
+    }
+  }
+  draw(ox, oy) {
+    for (let i = 0; i < this.count; i++) {
+      const angle = this.t + (i / this.count) * Math.PI * 2;
+      const px = this.player.x - ox + Math.cos(angle) * this.r;
+      const py = this.player.y - oy + Math.sin(angle) * this.r;
+      const c  = this.orbColors[i % this.orbColors.length];
+      ctx.save();
+      ctx.shadowBlur = 18; ctx.shadowColor = c;
+      ctx.fillStyle = c;
+      ctx.beginPath(); ctx.arc(px, py, 10, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.6)';
+      ctx.beginPath(); ctx.arc(px - 3, py - 3, 4, 0, Math.PI*2); ctx.fill();
+      ctx.restore();
+    }
+  }
+}
+
+// ═══════════════════════════════════════════
+//  적 유형 정의
+// ═══════════════════════════════════════════
+const ENEMY_TYPES = {
+  slime:    { emoji:'🟢', hp:28,  spd:58,  xp:1, r:15, score:10, dmg:8  },
+  flower:   { emoji:'🌸', hp:50,  spd:44,  xp:2, r:17, score:15, dmg:10 },
+  ghost:    { emoji:'👻', hp:22,  spd:88,  xp:1, r:14, score:12, dmg:8  },
+  mushroom: { emoji:'🍄', hp:85,  spd:32,  xp:3, r:20, score:20, dmg:12 },
+  star:     { emoji:'⭐', hp:38,  spd:72,  xp:2, r:15, score:18, dmg:10 },
+  cloud:    { emoji:'☁️', hp:60,  spd:50,  xp:2, r:18, score:16, dmg:10 },
+  boss:     { emoji:'👾', hp:600, spd:55,  xp:20,r:32, score:120,dmg:20 },
+};
+const ENEMY_POOL = ['slime','flower','ghost','mushroom','star','cloud'];
+const ENEMY_WEIGHTS = [38, 20, 18, 14, 6, 4];
+
+let _eid = 0;
+class Enemy {
+  constructor(x, y, type, hpMul, spdMul) {
+    this.id    = _eid++;
+    this.x = x; this.y = y;
+    this.type  = type;
+    this.alive = true;
+    this.hitFlash = 0;
+    this.t = Math.random() * Math.PI * 2;
+
+    const def = ENEMY_TYPES[type] || ENEMY_TYPES.slime;
+    this.emoji  = def.emoji;
+    this.r      = def.r;
+    this.xp     = def.xp;
+    this.score  = def.score;
+    this.dmg    = def.dmg;
+    this.isBoss = type === 'boss';
+    this.maxHp  = this.hp = Math.round(def.hp * hpMul);
+    this.speed  = def.spd * spdMul;
+  }
+  takeDamage(dmg) {
+    this.hp -= dmg;
+    this.hitFlash = 0.14;
+    if (this.hp <= 0) { this.hp = 0; this.alive = false; }
+  }
+  update(dt, px, py) {
+    this.t        += dt;
+    this.hitFlash  = Math.max(0, this.hitFlash - dt);
+    const dx = px - this.x, dy = py - this.y;
+    const d = Math.hypot(dx, dy);
+    if (d > 0.5) {
+      this.x += (dx / d) * this.speed * dt;
+      this.y += (dy / d) * this.speed * dt;
+    }
+  }
+  draw(ox, oy) {
+    const sx = this.x - ox, sy = this.y - oy;
+    const bob = Math.sin(this.t * 5) * 2.5;
+    ctx.save();
+    if (this.hitFlash > 0) {
+      ctx.filter = 'brightness(3)';
+    }
+    ctx.font = `${this.r * 2.1}px serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(this.emoji, sx, sy + bob);
+    ctx.restore();
+
+    // HP 바 (보스이거나 피해를 입었을 때)
+    if (this.hp < this.maxHp || this.isBoss) {
+      const bw = this.r * 2.4, bh = this.isBoss ? 8 : 4;
+      const bx = sx - bw / 2, by = sy - this.r - 14;
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      roundRect(bx - 1, by - 1, bw + 2, bh + 2, 4); ctx.fill();
+      ctx.fillStyle = '#444';
+      roundRect(bx, by, bw, bh, 3); ctx.fill();
+      const pct = this.hp / this.maxHp;
+      ctx.fillStyle = pct > 0.5 ? '#a8ff78' : pct > 0.25 ? '#ffd700' : '#ff4466';
+      roundRect(bx, by, bw * pct, bh, 3); ctx.fill();
+    }
+  }
+}
+
+// ═══════════════════════════════════════════
+//  플레이어
+// ═══════════════════════════════════════════
+class Player {
+  constructor() {
+    this.x = 0; this.y = 0;
+    this.r = 16;
+    this.maxHp = 100; this.hp = 100;
+    this.speed = 155;
+    this.level  = 1;
+    this.xp     = 0;
+    this.xpNext = 30;
+    this.invincible = 0;
+    this.t = 0;
+
+    // 기본 무기: 마법 별 (8방향 발사)
+    this.starWeapon = { cd:0, maxCd:0.85, dmg:20, bulletSpd:340, count:8, color:'#ffd700' };
+
+    // 추가 무기 (잠금 해제)
+    this.hasOrb      = false; this.orb = null;
+    this.hasLightning= false; this.lightningCd=0; this.lightningMaxCd=1.4; this.lightningDmg=45; this.lightningLevel=1;
+    this.hasFlower   = false; this.flowerCd=0;  this.flowerMaxCd=2.2; this.flowerDmg=25; this.flowerLevel=1;
+  }
+  addXP(amount) {
+    this.xp += amount;
+    if (this.xp >= this.xpNext) {
+      this.xp    -= this.xpNext;
+      this.xpNext = Math.round(this.xpNext * 1.32);
+      this.level++;
+      return true;
+    }
+    return false;
+  }
+  takeDamage(dmg) {
+    if (this.invincible > 0) return;
+    this.hp -= dmg;
+    this.invincible = 1.1;
+    SFX.hurt();
+    if (this.hp < 0) this.hp = 0;
+  }
+  update(dt) {
+    this.t += dt;
+    this.invincible       = Math.max(0, this.invincible - dt);
+    this.starWeapon.cd    = Math.max(0, this.starWeapon.cd - dt);
+    this.lightningCd      = Math.max(0, this.lightningCd  - dt);
+    this.flowerCd         = Math.max(0, this.flowerCd     - dt);
+  }
+  draw(ox, oy) {
+    const sx = this.x - ox, sy = this.y - oy;
+    const bob = Math.sin(this.t * 4) * 2.5;
+    ctx.save();
+    if (this.invincible > 0 && Math.floor(this.invincible * 12) % 2 === 0) {
+      ctx.globalAlpha = 0.3;
+    }
+    ctx.shadowBlur = 24; ctx.shadowColor = '#ffd700';
+    ctx.font = '40px serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('🧙', sx, sy + bob);
+    ctx.restore();
+  }
+}
+
+// ═══════════════════════════════════════════
+//  업그레이드 목록
+// ═══════════════════════════════════════════
+const UPGRADES = [
+  { id:'star_dmg',    name:'⭐ 별 위력 강화',   desc:'별 데미지 +35%',           color:'#ffd700' },
+  { id:'star_rate',   name:'💫 빠른 별 발사',    desc:'발사 속도 +28%',           color:'#ffe580' },
+  { id:'star_count',  name:'🌟 별 개수 증가',    desc:'별 +2개 동시 발사',        color:'#ffcc44' },
+  { id:'orb',         name:'🌈 무지개 오브',     desc:'빙글빙글 마법 오브 등장!', color:'#ff6eb4' },
+  { id:'orb_up',      name:'💖 오브 강화',       desc:'오브 데미지·개수 증가',    color:'#ff9de2' },
+  { id:'lightning',   name:'⚡ 번개 마법',       desc:'가장 가까운 적에 번개!',   color:'#9acdff' },
+  { id:'lightning_up',name:'🌩️ 번개 강화',     desc:'번개 데미지·속도 증가',    color:'#7ab8ff' },
+  { id:'flower',      name:'🌸 꽃 폭탄',         desc:'튕기는 꽃잎 폭탄 발사!',  color:'#ffaad4' },
+  { id:'flower_up',   name:'🌺 꽃 강화',         desc:'꽃 데미지·발사 속도 증가', color:'#ff88bb' },
+  { id:'hp_up',       name:'❤️ 체력 회복',      desc:'체력 +35 회복',            color:'#ff6666' },
+  { id:'speed_up',    name:'👟 스피드 업',       desc:'이동 속도 +14%',           color:'#a8ff78' },
+];
+
+// ═══════════════════════════════════════════
+//  꽃 폭탄 (바운싱)
+// ═══════════════════════════════════════════
+class FlowerBomb {
+  constructor(x, y, vx, vy, dmg, bounces) {
+    this.x=x; this.y=y; this.vx=vx; this.vy=vy;
+    this.dmg=dmg; this.bounces=bounces;
+    this.r=10; this.alive=true; this.t=0;
+    this.hitSet = new Set();
+    this.life = 4;
+  }
+  update(dt) {
+    this.x  += this.vx * dt; this.y += this.vy * dt;
+    this.vy += 200 * dt;
+    this.t  += dt; this.life -= dt;
+    if (this.life <= 0) this.alive = false;
+  }
+  bounce() {
+    this.vy = -Math.abs(this.vy) * 0.8;
+    this.bounces--;
+    if (this.bounces <= 0) this.alive = false;
+  }
+  draw(ox, oy) {
+    const sx = this.x-ox, sy = this.y-oy;
+    ctx.save();
+    ctx.shadowBlur=12; ctx.shadowColor='#ff88bb';
+    ctx.font = '24px serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('🌸', sx, sy);
+    ctx.restore();
+  }
+}
+
+// ═══════════════════════════════════════════
+//  번개 이펙트
+// ═══════════════════════════════════════════
+class LightningEffect {
+  constructor(x1,y1,x2,y2) {
+    this.x1=x1; this.y1=y1; this.x2=x2; this.y2=y2;
+    this.life = 0.15;
+    this.segs = this._genSegs();
+  }
+  _genSegs() {
+    const segs = [];
+    const steps = 10;
+    let px = this.x1, py = this.y1;
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      const nx = this.x1 + (this.x2-this.x1)*t + (Math.random()-0.5)*28;
+      const ny = this.y1 + (this.y2-this.y1)*t + (Math.random()-0.5)*28;
+      segs.push([px, py, nx, ny]);
+      px = nx; py = ny;
+    }
+    return segs;
+  }
+  update(dt) { this.life -= dt; }
+  draw(ox, oy) {
+    const a = Math.max(0, this.life / 0.15);
+    ctx.save();
+    ctx.globalAlpha = a;
+    ctx.strokeStyle = '#9acdff';
+    ctx.shadowBlur  = 16; ctx.shadowColor = '#9acdff';
+    ctx.lineWidth   = 3;
+    ctx.beginPath();
+    for (const [x1,y1,x2,y2] of this.segs) {
+      ctx.moveTo(x1-ox, y1-oy); ctx.lineTo(x2-ox, y2-oy);
+    }
+    ctx.stroke();
+    // Core white
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (const [x1,y1,x2,y2] of this.segs) {
+      ctx.moveTo(x1-ox, y1-oy); ctx.lineTo(x2-ox, y2-oy);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+// ═══════════════════════════════════════════
+//  떠다니는 텍스트
+// ═══════════════════════════════════════════
+class FloatText {
+  constructor(x, y, text, color='#fff', size=16) {
+    Object.assign(this, {x, y, text, color, size});
+    this.life = 0.9; this.vy = -60;
+  }
+  update(dt) { this.y += this.vy*dt; this.life -= dt; }
+  draw(ox, oy) {
+    const a = Math.max(0, this.life / 0.9);
+    ctx.save();
+    ctx.globalAlpha = a;
+    ctx.fillStyle   = this.color;
+    ctx.shadowBlur  = 8; ctx.shadowColor = this.color;
+    ctx.font = `bold ${this.size}px sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(this.text, this.x - ox, this.y - oy);
+    ctx.restore();
+  }
+}
+
+// ═══════════════════════════════════════════
+//  게임 메인 클래스
+// ═══════════════════════════════════════════
+class Game {
+  constructor(stage) {
+    this.stage = stage;
+    this.diff  = getDifficulty(stage);
+
+    this.state      = 'playing'; // playing | levelup | dead | clear
+    this.player     = new Player();
+    this.enemies    = [];
+    this.bullets    = [];
+    this.flowerBombs= [];
+    this.gems       = [];
+    this.particles  = [];
+    this.lightnings = [];
+    this.floatTexts = [];
+
+    this.score      = 0;
+    this.killCount  = 0;
+    this.timeLeft   = this.diff.timeLimit;
+    this.spawnTimer = 0;
+    this.bossTimer  = this.diff.bossInterval;
+
+    this.pendingUpgrades = [];
+    this.selectedUpgrade = -1;
+
+    // 카메라
+    this.camX = 0; this.camY = 0;
+
+    // 조이스틱
+    this.joyId = -1;
+    this.joy   = null;
+    this.moveX = 0; this.moveY = 0;
+
+    this.keys  = {};
+    this.lastTs= 0;
+    this.raf   = 0;
+
+    this._onTouchStart = this._onTouchStart.bind(this);
+    this._onTouchMove  = this._onTouchMove.bind(this);
+    this._onTouchEnd   = this._onTouchEnd.bind(this);
+    this._onKeyDown    = this._onKeyDown.bind(this);
+    this._onKeyUp      = this._onKeyUp.bind(this);
+    this._onClick      = this._onClick.bind(this);
+
+    canvas.addEventListener('touchstart', this._onTouchStart, {passive:false});
+    canvas.addEventListener('touchmove',  this._onTouchMove,  {passive:false});
+    canvas.addEventListener('touchend',   this._onTouchEnd,   {passive:false});
+    canvas.addEventListener('click',      this._onClick);
+    window.addEventListener('keydown',    this._onKeyDown);
+    window.addEventListener('keyup',      this._onKeyUp);
+
+    SFX.startBGM();
+    this.raf = requestAnimationFrame(ts => this._loop(ts));
+  }
+
+  // ── 입력 ──────────────────────────────────
+  _onTouchStart(e) {
+    e.preventDefault();
+    for (const t of e.changedTouches) {
+      if (this.state === 'playing' && this.joyId === -1) {
+        this.joyId = t.identifier;
+        this.joy   = { sx:t.clientX, sy:t.clientY, cx:t.clientX, cy:t.clientY };
+      } else if (this.state === 'levelup') {
+        this._pickUpgrade(t.clientX, t.clientY);
+      }
+    }
+  }
+  _onTouchMove(e) {
+    e.preventDefault();
+    for (const t of e.changedTouches) {
+      if (t.identifier === this.joyId && this.joy) {
+        this.joy.cx = t.clientX; this.joy.cy = t.clientY;
+      }
+    }
+  }
+  _onTouchEnd(e) {
+    e.preventDefault();
+    for (const t of e.changedTouches) {
+      if (t.identifier === this.joyId) {
+        this.joyId = -1; this.joy = null;
+        this.moveX = 0;  this.moveY = 0;
+      }
+    }
+  }
+  _onClick(e) {
+    if (this.state === 'levelup') this._pickUpgrade(e.clientX, e.clientY);
+  }
+  _onKeyDown(e) { this.keys[e.key] = true; }
+  _onKeyUp(e)   { this.keys[e.key] = false; }
+
+  _pickUpgrade(mx, my) {
+    const n    = this.pendingUpgrades.length;
+    const bw   = Math.min(W - 40, 310);
+    const bh   = 82;
+    const gap  = 12;
+    const totalH = n * bh + (n - 1) * gap;
+    const startY = H / 2 - totalH / 2 + 50;
+    const startX = W / 2 - bw / 2;
+    for (let i = 0; i < n; i++) {
+      const ux = startX, uy = startY + i * (bh + gap);
+      if (mx >= ux && mx <= ux + bw && my >= uy && my <= uy + bh) {
+        this._applyUpgrade(this.pendingUpgrades[i]);
+        break;
+      }
+    }
+  }
+
+  _applyUpgrade(upg) {
+    const p = this.player;
+    switch (upg.id) {
+      case 'star_dmg':     p.starWeapon.dmg   *= 1.35; break;
+      case 'star_rate':    p.starWeapon.maxCd  *= 0.72; break;
+      case 'star_count':   p.starWeapon.count  += 2;    break;
+      case 'orb':
+        if (!p.hasOrb) { p.hasOrb = true; p.orb = new OrbAura(p); }
+        break;
+      case 'orb_up':       if (p.orb) p.orb.levelUp(); break;
+      case 'lightning':    p.hasLightning = true; break;
+      case 'lightning_up': p.lightningLevel++; p.lightningDmg += 25; p.lightningMaxCd *= 0.75; break;
+      case 'flower':       p.hasFlower = true; break;
+      case 'flower_up':    p.flowerLevel++; p.flowerDmg += 15; p.flowerMaxCd *= 0.8; break;
+      case 'hp_up':        p.hp = Math.min(p.maxHp, p.hp + 35); break;
+      case 'speed_up':     p.speed *= 1.14; break;
+    }
+    SFX.levelUp();
+    this.state          = 'playing';
+    this.pendingUpgrades = [];
+  }
+
+  _getUpgradeOptions() {
+    const p = this.player;
+    const pool = UPGRADES.filter(u => {
+      if (u.id === 'orb_up'       && !p.hasOrb)       return false;
+      if (u.id === 'orb'          &&  p.hasOrb)        return false;
+      if (u.id === 'lightning_up' && !p.hasLightning)  return false;
+      if (u.id === 'flower_up'    && !p.hasFlower)     return false;
+      return true;
+    });
+    const result = [];
+    const copy   = [...pool];
+    for (let i = 0; i < 3 && copy.length > 0; i++) {
+      const idx = Math.floor(Math.random() * copy.length);
+      result.push(copy.splice(idx, 1)[0]);
+    }
+    return result;
+  }
+
+  // ── 스폰 ──────────────────────────────────
+  _spawnEnemy(type) {
+    const margin = 60;
+    const cx = this.player.x, cy = this.player.y;
+    let x, y;
+    const side = Math.floor(Math.random() * 4);
+    if (side === 0) { x = cx + (Math.random()-0.5)*(W+200); y = cy - H/2 - margin; }
+    else if (side===1) { x = cx + W/2 + margin; y = cy + (Math.random()-0.5)*(H+200); }
+    else if (side===2) { x = cx + (Math.random()-0.5)*(W+200); y = cy + H/2 + margin; }
+    else               { x = cx - W/2 - margin; y = cy + (Math.random()-0.5)*(H+200); }
+
+    if (!type) {
+      let r = Math.random() * 100, acc = 0;
+      type = ENEMY_POOL[0];
+      for (let i = 0; i < ENEMY_POOL.length; i++) {
+        acc += ENEMY_WEIGHTS[i];
+        if (r < acc) { type = ENEMY_POOL[i]; break; }
+      }
+    }
+    const hm = this.diff.enemyHpMul;
+    const sm = this.diff.enemySpeed;
+    this.enemies.push(new Enemy(x, y, type, hm, sm));
+  }
+
+  // ── 무기 발사 ──────────────────────────────
+  _fireStar() {
+    const w = this.player.starWeapon;
+    if (w.cd > 0) return;
+    w.cd = w.maxCd;
+    SFX.shoot();
+    for (let i = 0; i < w.count; i++) {
+      const a = (i / w.count) * Math.PI * 2;
+      this.bullets.push(new Bullet(
+        this.player.x, this.player.y,
+        Math.cos(a) * w.bulletSpd, Math.sin(a) * w.bulletSpd,
+        w.dmg, 9, w.color, 'star'
+      ));
+    }
+  }
+
+  _fireLightning(nearest) {
+    const p = this.player;
+    if (!p.hasLightning || !nearest || p.lightningCd > 0) return;
+    p.lightningCd = p.lightningMaxCd / p.lightningLevel;
+    const dmg = p.lightningDmg;
+    nearest.takeDamage(dmg);
+    this.floatTexts.push(new FloatText(nearest.x, nearest.y - 20, `⚡${dmg}`, '#9acdff', 14));
+    this.lightnings.push(new LightningEffect(p.x, p.y, nearest.x, nearest.y));
+    SFX.hit();
+  }
+
+  _fireFlower() {
+    const p = this.player;
+    if (!p.hasFlower || p.flowerCd > 0) return;
+    p.flowerCd = p.flowerMaxCd;
+    const count = 2 + p.flowerLevel;
+    for (let i = 0; i < count; i++) {
+      const a = (i / count) * Math.PI * 2;
+      const spd = 280 + Math.random() * 80;
+      this.flowerBombs.push(new FlowerBomb(
+        p.x, p.y,
+        Math.cos(a) * spd, Math.sin(a) * spd - 180,
+        p.flowerDmg, 3 + p.flowerLevel
+      ));
+    }
+  }
+
+  // ── 업데이트 ────────────────────────────────
+  update(dt) {
+    if (this.state !== 'playing') return;
+    const p = this.player;
+
+    // 조이스틱 / 키보드 이동
+    if (this.joy) {
+      const dx = this.joy.cx - this.joy.sx, dy = this.joy.cy - this.joy.sy;
+      const len = Math.hypot(dx, dy);
+      const max = 60;
+      if (len > 6) {
+        const f = Math.min(len, max) / max;
+        this.moveX = (dx / len) * f;
+        this.moveY = (dy / len) * f;
+      } else { this.moveX = 0; this.moveY = 0; }
+    } else {
+      let mx = 0, my = 0;
+      if (this.keys['ArrowLeft']  || this.keys['a'] || this.keys['A']) mx -= 1;
+      if (this.keys['ArrowRight'] || this.keys['d'] || this.keys['D']) mx += 1;
+      if (this.keys['ArrowUp']    || this.keys['w'] || this.keys['W']) my -= 1;
+      if (this.keys['ArrowDown']  || this.keys['s'] || this.keys['S']) my += 1;
+      const len = Math.hypot(mx, my);
+      this.moveX = len > 0 ? mx/len : 0;
+      this.moveY = len > 0 ? my/len : 0;
+    }
+    p.x += this.moveX * p.speed * dt;
+    p.y += this.moveY * p.speed * dt;
+    p.update(dt);
+
+    this.camX = p.x;
+    this.camY = p.y;
+
+    // 적 스폰
+    this.spawnTimer += dt;
+    if (this.spawnTimer >= this.diff.spawnRate) {
+      this.spawnTimer = 0;
+      const batch = 1 + Math.floor(this.stage / 4);
+      for (let i = 0; i < batch; i++) this._spawnEnemy();
+    }
+    this.bossTimer -= dt;
+    if (this.bossTimer <= 0) {
+      this.bossTimer = this.diff.bossInterval;
+      this._spawnEnemy('boss');
+    }
+
+    // 가장 가까운 적
+    let nearest = null, nearDist = Infinity;
+    for (const e of this.enemies) {
+      if (!e.alive) continue;
+      const d = Math.hypot(e.x - p.x, e.y - p.y);
+      if (d < nearDist) { nearDist = d; nearest = e; }
+    }
+
+    // 무기 발사
+    this._fireStar();
+    this._fireLightning(nearest);
+    this._fireFlower();
+    if (p.orb) p.orb.update(dt, this.enemies);
+
+    // 총알 업데이트 & 적 히트
+    for (const b of this.bullets) {
+      b.update(dt);
+      if (!b.alive) continue;
+      for (const e of this.enemies) {
+        if (!e.alive) continue;
+        if (Math.hypot(b.x - e.x, b.y - e.y) < b.r + e.r) {
+          e.takeDamage(b.dmg);
+          this.floatTexts.push(new FloatText(e.x, e.y - 18, `-${Math.round(b.dmg)}`, '#fff', 13));
+          b.alive = false;
+          SFX.hit();
+          break;
+        }
+      }
+    }
+    this.bullets = this.bullets.filter(b => b.alive);
+
+    // 꽃 폭탄 업데이트
+    for (const fb of this.flowerBombs) {
+      fb.update(dt);
+      if (!fb.alive) continue;
+      // 바닥 바운스 (가상)
+      if (fb.vy > 0 && fb.y > p.y + 300) fb.bounce();
+      for (const e of this.enemies) {
+        if (!e.alive || fb.hitSet.has(e.id)) continue;
+        if (Math.hypot(fb.x - e.x, fb.y - e.y) < fb.r + e.r) {
+          e.takeDamage(fb.dmg);
+          fb.hitSet.add(e.id);
+          this.floatTexts.push(new FloatText(e.x, e.y - 18, `🌸${Math.round(fb.dmg)}`, '#ffaad4', 13));
+        }
+      }
+    }
+    this.flowerBombs = this.flowerBombs.filter(fb => fb.alive);
+
+    // 번개 이펙트 업데이트
+    for (const ln of this.lightnings) ln.update(dt);
+    this.lightnings = this.lightnings.filter(ln => ln.life > 0);
+
+    // 적 업데이트 & 플레이어 충돌
+    for (const e of this.enemies) {
+      if (!e.alive) continue;
+      e.update(dt, p.x, p.y);
+      if (Math.hypot(e.x - p.x, e.y - p.y) < e.r + p.r) {
+        p.takeDamage(e.dmg);
+      }
+    }
+
+    // 적 사망 처리
+    for (const e of this.enemies) {
+      if (!e.alive) {
+        // 파티클
+        const c = ['#ff6eb4','#ffd700','#a8ff78','#00e5ff','#c86eff'];
+        for (let i = 0; i < (e.isBoss ? 20 : 10); i++) {
+          const a = Math.random() * Math.PI * 2;
+          const s = 60 + Math.random() * 170;
+          this.particles.push(new Particle(e.x, e.y,
+            Math.cos(a)*s, Math.sin(a)*s,
+            c[Math.floor(Math.random()*c.length)], 0.9, 3 + Math.random()*4));
+        }
+        // 점수 & XP
+        this.score     += e.score;
+        this.killCount += 1;
+        GameBridge.updateScore(this.score);
+        e.isBoss ? SFX.bossDie() : SFX.enemyDie();
+
+        // 보석 드롭
+        const gemCount = e.isBoss ? 8 : e.xp;
+        for (let i = 0; i < gemCount; i++) {
+          this.gems.push(new XPGem(
+            e.x + (Math.random()-0.5)*40,
+            e.y + (Math.random()-0.5)*40,
+            e.xp
+          ));
+        }
+      }
+    }
+    this.enemies = this.enemies.filter(e => e.alive);
+
+    // 보석 수집
+    for (const g of this.gems) {
+      g.update(dt, p.x, p.y);
+      if (Math.hypot(g.x - p.x, g.y - p.y) < p.r + g.r) {
+        SFX.collect();
+        this.score += g.value;
+        g.life = 0;
+        const leveled = p.addXP(g.value);
+        if (leveled) {
+          this.state           = 'levelup';
+          this.pendingUpgrades = this._getUpgradeOptions();
+        }
+      }
+    }
+    this.gems = this.gems.filter(g => g.life > 0);
+
+    // 파티클 & 텍스트
+    for (const pt of this.particles) pt.update(dt);
+    this.particles = this.particles.filter(pt => pt.life > 0);
+    for (const ft of this.floatTexts) ft.update(dt);
+    this.floatTexts = this.floatTexts.filter(ft => ft.life > 0);
+
+    // 타이머
+    this.timeLeft -= dt;
+    if (p.hp <= 0)        this._end(false);
+    else if (this.timeLeft <= 0) this._end(true);
+  }
+
+  _end(cleared) {
+    SFX.stopBGM();
+    this.state = cleared ? 'clear' : 'dead';
+    setTimeout(() => {
+      GameBridge.complete({
+        score:   this.score,
+        cleared: cleared && this.score >= this.diff.targetScore,
+        customData: { kills: this.killCount, playerLevel: this.player.level }
+      });
+    }, 2200);
+  }
+
+  // ── 렌더링 ────────────────────────────────
+  _drawBackground() {
+    // 배경 그라데이션
+    const grad = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, Math.max(W,H));
+    grad.addColorStop(0,   '#1e0a3c');
+    grad.addColorStop(0.6, '#150828');
+    grad.addColorStop(1,   '#0a0416');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+
+    // 별빛 배경 (시차 스크롤)
+    const ox = this.camX, oy = this.camY;
+    ctx.save();
+    for (let i = 0; i < 90; i++) {
+      const bx = ((i * 239.7) % (W * 3)) - W;
+      const by = ((i * 131.3) % (H * 3)) - H;
+      const sx = ((bx - ox * 0.06) % (W*2) + W*2) % (W*2) - W*0.5;
+      const sy = ((by - oy * 0.06) % (H*2) + H*2) % (H*2) - H*0.5;
+      const size = 0.8 + (i % 3) * 0.7;
+      const alpha = 0.25 + (i % 5) * 0.06;
+      ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+      ctx.beginPath(); ctx.arc(sx, sy, size, 0, Math.PI*2); ctx.fill();
+    }
+
+    // 파스텔 그리드
+    ctx.strokeStyle = 'rgba(140,80,220,0.15)';
+    ctx.lineWidth = 1;
+    const g = 90;
+    const gox = ((-ox) % g + g) % g;
+    const goy = ((-oy) % g + g) % g;
+    for (let x = gox - g; x < W + g; x += g) {
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+    }
+    for (let y = goy - g; y < H + g; y += g) {
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  _drawHUD() {
+    const p = this.player;
+
+    // ── 상단 HP & XP ──
+    const bw = Math.min(W - 32, 320), bx = (W - bw) / 2;
+
+    // HP 바
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    roundRect(bx-2, 14, bw+4, 22, 12); ctx.fill();
+
+    const hpGrad = ctx.createLinearGradient(bx, 0, bx+bw, 0);
+    hpGrad.addColorStop(0, '#ff3366');
+    hpGrad.addColorStop(1, '#ff88bb');
+    ctx.fillStyle = '#222'; roundRect(bx, 16, bw, 18, 10); ctx.fill();
+    ctx.fillStyle = hpGrad;  roundRect(bx, 16, bw * (p.hp / p.maxHp), 18, 10); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 11px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(`❤️ ${p.hp} / ${p.maxHp}`, bx + bw/2, 25);
+
+    // XP 바
+    const xbY = 38;
+    ctx.fillStyle = '#1a0830'; roundRect(bx, xbY, bw, 7, 4); ctx.fill();
+    const xpGrad = ctx.createLinearGradient(bx, 0, bx+bw, 0);
+    xpGrad.addColorStop(0, '#a8ff78'); xpGrad.addColorStop(1, '#00e5c8');
+    ctx.fillStyle = xpGrad; roundRect(bx, xbY, bw * (p.xp / p.xpNext), 7, 4); ctx.fill();
+
+    // ── 왼쪽 ──
+    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    ctx.font = 'bold 17px sans-serif';
+    ctx.fillStyle = '#ffd700'; ctx.shadowBlur = 8; ctx.shadowColor = '#ffd700';
+    ctx.fillText(`⭐ ${this.score}`, 12, 15);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#a8ff78'; ctx.font = 'bold 13px sans-serif';
+    ctx.fillText(`Lv.${p.level}`, 12, 36);
+
+    // ── 오른쪽 ──
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#ff9de2'; ctx.font = 'bold 17px sans-serif';
+    ctx.fillText(`👾 ${this.killCount}`, W - 12, 15);
+    ctx.fillStyle = 'rgba(255,255,255,0.45)'; ctx.font = '12px sans-serif';
+    ctx.fillText(`목표 ${this.diff.targetScore}점`, W - 12, 36);
+
+    // ── 타이머 ──
+    const ts = Math.ceil(Math.max(0, this.timeLeft));
+    const mm = String(Math.floor(ts/60)).padStart(2,'0');
+    const ss = String(ts % 60).padStart(2,'0');
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    ctx.font = 'bold 22px sans-serif';
+    ctx.fillStyle = this.timeLeft < 15
+      ? `rgba(255,${Math.floor(100+Math.abs(Math.sin(Date.now()/200)*155))},80,1)`
+      : '#ffffff';
+    ctx.fillText(`⏱ ${mm}:${ss}`, W/2, 50);
+
+    // ── 조이스틱 ──
+    if (this.joy) {
+      const jx = this.joy.sx, jy = this.joy.sy;
+      const cdx = Math.min(60, this.joy.cx - jx);
+      const cdy = Math.min(60, this.joy.cy - jy);
+      ctx.save();
+      ctx.globalAlpha = 0.35;
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(jx, jy, 52, 0, Math.PI*2); ctx.stroke();
+      ctx.globalAlpha = 0.55;
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(jx + cdx, jy + cdy, 22, 0, Math.PI*2); ctx.fill();
+      ctx.restore();
+    }
+
+    // ── 무기 아이콘 (보유 무기 표시) ──
+    const weapons = ['⭐'];
+    if (this.player.hasOrb)       weapons.push('🌈');
+    if (this.player.hasLightning) weapons.push('⚡');
+    if (this.player.hasFlower)    weapons.push('🌸');
+    ctx.font = '18px serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+    weapons.forEach((w, i) => ctx.fillText(w, 12 + i * 26, H - 12));
+  }
+
+  _drawLevelUp() {
+    // 어두운 오버레이
+    ctx.fillStyle = 'rgba(0,0,0,0.78)';
+    ctx.fillRect(0, 0, W, H);
+
+    // 제목
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = 'bold 30px sans-serif';
+    ctx.fillStyle = '#ffd700';
+    ctx.shadowBlur = 18; ctx.shadowColor = '#ffd700';
+    ctx.fillText('✨ 레벨 업! ✨', W/2, H/2 - 130);
+    ctx.shadowBlur = 0;
+
+    ctx.font = '15px sans-serif'; ctx.fillStyle = '#c86eff';
+    ctx.fillText(`Lv. ${this.player.level - 1} → Lv. ${this.player.level}  ·  업그레이드를 선택하세요`, W/2, H/2 - 96);
+
+    // 카드
+    const n   = this.pendingUpgrades.length;
+    const bw  = Math.min(W - 40, 310);
+    const bh  = 82, gap = 12;
+    const totalH = n * bh + (n - 1) * gap;
+    const startY = H / 2 - totalH / 2 + 50;
+    const startX = W / 2 - bw / 2;
+
+    for (let i = 0; i < n; i++) {
+      const u  = this.pendingUpgrades[i];
+      const ux = startX, uy = startY + i * (bh + gap);
+
+      ctx.save();
+      ctx.shadowBlur = 16; ctx.shadowColor = u.color;
+      ctx.fillStyle = 'rgba(18,6,40,0.95)';
+      roundRect(ux, uy, bw, bh, 16); ctx.fill();
+      ctx.strokeStyle = u.color; ctx.lineWidth = 2.5;
+      roundRect(ux, uy, bw, bh, 16); ctx.stroke();
+      ctx.restore();
+
+      ctx.textAlign = 'left';
+      ctx.font = 'bold 17px sans-serif'; ctx.fillStyle = u.color;
+      ctx.fillText(u.name, ux + 18, uy + 28);
+      ctx.font = '13px sans-serif'; ctx.fillStyle = 'rgba(255,255,255,0.72)';
+      ctx.fillText(u.desc, ux + 18, uy + 55);
+    }
+  }
+
+  _drawEndScreen() {
+    const cleared = this.state === 'clear';
+    ctx.fillStyle = 'rgba(0,0,0,0.82)';
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = '64px serif';
+    ctx.fillText(cleared ? '🎉' : '💔', W/2, H/2 - 70);
+
+    ctx.font = 'bold 34px sans-serif';
+    ctx.fillStyle = cleared ? '#ffd700' : '#ff6b6b';
+    ctx.shadowBlur = 20; ctx.shadowColor = ctx.fillStyle;
+    ctx.fillText(cleared ? '스테이지 클리어!' : '게임 오버', W/2, H/2);
+    ctx.shadowBlur = 0;
+
+    ctx.font = '20px sans-serif'; ctx.fillStyle = '#fff';
+    ctx.fillText(`점수  ${this.score}`, W/2, H/2 + 50);
+    ctx.fillText(`처치  ${this.killCount} 마리`, W/2, H/2 + 82);
+    ctx.fillText(`레벨  ${this.player.level}`, W/2, H/2 + 114);
+  }
+
+  draw() {
+    ctx.clearRect(0, 0, W, H);
+    this._drawBackground();
+
+    const ox = this.camX - W / 2;
+    const oy = this.camY - H / 2;
+
+    // 게임 오브젝트
+    for (const g  of this.gems)       g.draw(ox, oy);
+    for (const pt of this.particles)  pt.draw(ox, oy);
+    for (const e  of this.enemies)    e.draw(ox, oy);
+    for (const b  of this.bullets)    b.draw(ox, oy);
+    for (const fb of this.flowerBombs) fb.draw(ox, oy);
+    for (const ln of this.lightnings) ln.draw(ox, oy);
+    if (this.player.orb)              this.player.orb.draw(ox, oy);
+    this.player.draw(ox, oy);
+    for (const ft of this.floatTexts) ft.draw(ox, oy);
+
+    // HUD
+    if (this.state === 'playing' || this.state === 'levelup') this._drawHUD();
+    if (this.state === 'levelup')  this._drawLevelUp();
+    if (this.state === 'dead' || this.state === 'clear') this._drawEndScreen();
+  }
+
+  _loop(ts) {
+    if (!this.lastTs) this.lastTs = ts;
+    const dt = Math.min((ts - this.lastTs) / 1000, 0.05);
+    this.lastTs = ts;
+    this.update(dt);
+    this.draw();
+    this.raf = requestAnimationFrame(ts2 => this._loop(ts2));
+  }
+
+  destroy() {
+    cancelAnimationFrame(this.raf);
+    SFX.stopBGM();
+    canvas.removeEventListener('touchstart', this._onTouchStart);
+    canvas.removeEventListener('touchmove',  this._onTouchMove);
+    canvas.removeEventListener('touchend',   this._onTouchEnd);
+    canvas.removeEventListener('click',      this._onClick);
+    window.removeEventListener('keydown',    this._onKeyDown);
+    window.removeEventListener('keyup',      this._onKeyUp);
+  }
+}
+
+// ═══════════════════════════════════════════
+//  진입점
+// ═══════════════════════════════════════════
+let game = null;
+function startGame() {
+  if (game) game.destroy();
+  game = new Game(GameBridge.stage);
+}
+</script>
+</body>
+</html>
