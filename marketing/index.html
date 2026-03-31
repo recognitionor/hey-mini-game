@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Youngssoo - Smart Learning & Fun Games</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;800&display=swap');
+        
+        :root {
+            --bg-color: #121212;
+            --container-bg: #1E1E2C;
+            --text-main: #FFFFFF;
+            --accent-primary: #FFD700;
+            --accent-secondary: #00E676;
+            --accent-tertiary: #2979FF;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            font-family: 'Pretendard', sans-serif;
+            margin: 0;
+            padding: 0;
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        .hero {
+            background: linear-gradient(135deg, #1E1E2C 0%, #0B0B14 100%);
+            padding: 100px 20px;
+            text-align: center;
+            border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .hero h1 {
+            font-size: 3.5rem;
+            margin-bottom: 20px;
+            font-weight: 800;
+            background: linear-gradient(90deg, var(--accent-primary), var(--accent-secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .hero p {
+            font-size: 1.5rem;
+            opacity: 0.9;
+            max-width: 600px;
+            margin: 0 auto 40px auto;
+        }
+
+        .cta-btn {
+            display: inline-block;
+            background-color: var(--text-main);
+            color: var(--bg-color);
+            padding: 15px 40px;
+            font-size: 1.2rem;
+            font-weight: 800;
+            text-decoration: none;
+            border-radius: 50px;
+            transition: transform 0.2s, background-color 0.2s;
+        }
+
+        .cta-btn:hover {
+            transform: translateY(-3px);
+            background-color: #E0E0E0;
+        }
+
+        .features {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            padding: 60px 20px;
+            gap: 40px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .feature-card {
+            background-color: var(--container-bg);
+            border-radius: 20px;
+            padding: 40px;
+            width: 300px;
+            text-align: center;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+            transition: transform 0.3s;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-10px);
+        }
+
+        .feature-icon {
+            font-size: 4rem;
+            margin-bottom: 20px;
+        }
+
+        .feature-card h3 {
+            font-size: 1.5rem;
+            margin-bottom: 15px;
+            color: var(--accent-primary);
+        }
+
+        .feature-card p {
+            opacity: 0.8;
+            font-size: 1.05rem;
+        }
+
+        footer {
+            text-align: center;
+            padding: 40px 20px;
+            border-top: 1px solid rgba(255,255,255,0.05);
+            opacity: 0.5;
+            font-size: 0.9rem;
+        }
+        
+        @media (max-width: 768px) {
+            .hero h1 { font-size: 2.5rem; }
+            .hero p { font-size: 1.2rem; }
+            .feature-card { width: 100%; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="hero">
+        <h1>Youngssoo <br> 영어수학 천재되기</h1>
+        <p>단어장과 수학 배틀로 포인트를 모으고, 보상으로 다양한 미니게임을 즐겨보세요!</p>
+        <a href="#" onclick="alert('현재 Apple App Store 심사 진행 중입니다. 곧 정식 출시됩니다!'); return false;" class="cta-btn" style="opacity: 0.7;">App Store 출시 준비 중 (심사 중)</a>
+    </div>
+
+    <div class="features">
+        <div class="feature-card">
+            <div class="feature-icon">📚</div>
+            <h3>재미있는 단어 퀴즈</h3>
+            <p>초·중학교 필수 영단어 1000개를 지루하지 않게 퀴즈 형태로 매일매일 암기하세요. 틀린 단어는 복습장으로 쏙!</p>
+        </div>
+
+        <div class="feature-card">
+            <div class="feature-icon">⚔️</div>
+            <h3>수학 연산 배틀</h3>
+            <p>몬스터와 싸우듯 제한 시간 내에 덧셈, 뺄셈, 곱셈, 나눗셈을 암산하여 두뇌 회전을 한계까지 끌어올립니다.</p>
+        </div>
+
+        <div class="feature-card">
+            <div class="feature-icon">🎮</div>
+            <h3>짜릿한 미니웹게임</h3>
+            <p>열심히 공부했다면 보상을 받아야죠! 획득한 포인트로 다채로운 미니게임을 열어 친구들과 최고 점수를 겨루세요.</p>
+        </div>
+    </div>
+
+    <footer>
+        <p>&copy; 2026 Youngssoo Education. All rights reserved.</p>
+        <p>Contact: master@bium-place.com</p>
+    </footer>
+
+</body>
+</html>
