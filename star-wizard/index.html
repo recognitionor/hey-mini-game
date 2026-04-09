@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>별빛 마법사</title>
   <style>
+    :root { color-scheme: dark; }
     * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; touch-action:none; user-select:none; }
     html, body { width:100%; height:100%; overflow:hidden; background:#150828; }
     #canvas { position:fixed; inset:0; width:100%; height:100%; display:block; }
@@ -61,12 +62,20 @@
 //  GameBridge
 // ═══════════════════════════════════════════
 const GameBridge = {
-  stage:1, highScore:0, customData:{},
+  stage:1, highScore:0, customData:{}, initialized:false,
   onInit(data) {
+    if (this.initialized) return;
+    this.initialized = true;
+
+    if (typeof data === 'string') data = JSON.parse(data);
     this.stage     = data.stage     || 1;
     this.highScore = data.highScore || 0;
-    this.customData = JSON.parse(data.customData || '{}');
-    document.getElementById('test-panel').classList.add('hidden');
+    this.customData = typeof data.customData === 'string'
+      ? JSON.parse(data.customData || '{}')
+      : (data.customData || {});
+
+    const panel = document.getElementById('test-panel');
+    if (panel) panel.classList.add('hidden');
     startGame();
   },
   updateScore(s) {
@@ -84,6 +93,8 @@ const GameBridge = {
   log(m) { console.log('[GB]',m); if(window.AndroidBridge) AndroidBridge.log(m); }
 };
 
+window.GameBridge = GameBridge;
+
 // ─── 테스트 모드 ───
 const isTestMode = !window.AndroidBridge && !window.webkit?.messageHandlers?.iOSBridge;
 if (isTestMode) {
@@ -96,6 +107,13 @@ if (isTestMode) {
   };
 } else {
   document.getElementById('test-panel').classList.add('hidden');
+  // 앱 호출 대기, 300ms 후 자동 초기화 (더 빠르게)
+  setTimeout(() => {
+    if (!GameBridge.initialized) {
+      console.warn('[GameBridge] 앱 호출 없이 자동 초기화');
+      GameBridge.onInit({ stage:1, highScore:0, customData:'{}' });
+    }
+  }, 300);
 }
 
 // ═══════════════════════════════════════════
@@ -516,9 +534,15 @@ class Player {
     if (this.invincible > 0 && Math.floor(this.invincible * 12) % 2 === 0) {
       ctx.globalAlpha = 0.3;
     }
-    ctx.shadowBlur = 24; ctx.shadowColor = '#ffd700';
     ctx.font = '40px serif';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    // 그림자 (shadowBlur 제거 - 성능 개선)
+    ctx.globalAlpha *= 0.4;
+    ctx.fillStyle = '#ffd700';
+    ctx.fillText('🧙', sx + 2, sy + bob + 2);
+    ctx.globalAlpha /= 0.4;
+    // 이모지 (빠른 렌더링)
+    ctx.fillStyle = '#fff';
     ctx.fillText('🧙', sx, sy + bob);
     ctx.restore();
   }
@@ -1238,6 +1262,15 @@ class Game {
     if (this.state === 'playing' || this.state === 'levelup') this._drawHUD();
     if (this.state === 'levelup')  this._drawLevelUp();
     if (this.state === 'dead' || this.state === 'clear') this._drawEndScreen();
+
+    // 버전 표시 (오른쪽 아래)
+    ctx.save();
+    ctx.fillStyle = '#666';
+    ctx.font = '11px sans-serif';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(`v${gameVersion}`, W - 10, H - 10);
+    ctx.restore();
   }
 
   _loop(ts) {
@@ -1265,8 +1298,32 @@ class Game {
 //  진입점
 // ═══════════════════════════════════════════
 let game = null;
+let gameVersion = GameBridge.version || 1;  // 게임 버전 저장
+
 function startGame() {
   if (game) game.destroy();
+
+  // 캔버스 완전 초기화 (앱 웹뷰 호환)
+  ctx.clearRect(0, 0, W, H);
+
+  // Context 상태 초기화
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.shadowBlur = 0;
+  ctx.shadowColor = 'transparent';
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 0;
+  ctx.fillStyle = '#000';
+  ctx.strokeStyle = '#000';
+  ctx.lineWidth = 1;
+  ctx.textAlign = 'start';
+  ctx.textBaseline = 'alphabetic';
+  ctx.font = '10px sans-serif';
+
+  // 배경 칠하기
+  ctx.fillStyle = '#0a0e27';
+  ctx.fillRect(0, 0, W, H);
+
   game = new Game(GameBridge.stage);
 }
 </script>

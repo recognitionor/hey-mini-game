@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>넘버볼 합치기</title>
     <style>
+        :root {
+            color-scheme: dark;
+        }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             background: #0d0d1a;
@@ -86,11 +89,26 @@ const GameBridge = {
     stage: 1,
     highScore: 0,
     customData: {},
+    initialized: false,
+
     onInit(data) {
+        if (this.initialized) return;
+        this.initialized = true;
+
+        // 데이터 타입 자동 감지 (문자열 또는 객체)
+        if (typeof data === 'string') {
+            data = JSON.parse(data);
+        }
+
         this.stage = data.stage || 1;
         this.highScore = data.highScore || 0;
-        this.customData = JSON.parse(data.customData || '{}');
-        document.getElementById('test-panel').classList.add('hidden');
+        this.customData = typeof data.customData === 'string'
+            ? JSON.parse(data.customData || '{}')
+            : (data.customData || {});
+
+        const panel = document.getElementById('test-panel');
+        if (panel) panel.classList.add('hidden');
+
         initGame();
     },
     updateScore(score) {
@@ -120,6 +138,9 @@ const GameBridge = {
         if (window.AndroidBridge) AndroidBridge.log(msg);
     }
 };
+
+// 전역 할당 (앱에서 접근 가능하도록)
+window.GameBridge = GameBridge;
 
 // ============================================================
 // Ball Config — 11 levels (Suika-style)
@@ -173,6 +194,8 @@ const G = {
 // ============================================================
 // Game Init
 // ============================================================
+let gameVersion = GameBridge.version || 1;  // 게임 버전 저장
+
 function initGame() {
     const diff = getDifficulty(GameBridge.stage);
     G.difficulty = diff;
@@ -197,6 +220,11 @@ function initGame() {
             matter: {
                 gravity: { y: diff.gravity },
                 debug: false,
+                enableSleeping: false,
+                constraintIterations: 2,
+                positionIterations: 6,
+                velocityIterations: 4,
+                substeps: 1,
             }
         },
         scene: {
@@ -293,6 +321,11 @@ function createScene() {
     G.nextLevel = pickNextLevel(G.difficulty.maxDropLevel);
     G.dropX = 200;
     drawNextPreview();
+
+    // ── 버전 표시 (오른쪽 아래) ───────────────────────────
+    s.add.text(390, 690, `v${gameVersion}`, {
+        fontSize: '10px', color: '#666', fontFamily: 'Arial'
+    }).setOrigin(1, 1).setDepth(100);
 
     // ── Input ──────────────────────────────────────────
     s.input.on('pointermove', (ptr) => {
@@ -419,11 +452,14 @@ function dropBall() {
 function spawnBall(x, y, level) {
     const cfg  = BALLS[level - 1];
     const body = G.scene.matter.add.circle(x, y, cfg.r - 1, {
-        restitution: 0.22,
-        friction:    0.45,
-        frictionAir: 0.007,
+        restitution: 0.18,
+        friction:    0.5,
+        frictionAir: 0.015,
         mass:        2.5,   // 모든 공 동일 질량 (크기와 무관)
         label:       'ball',
+        plugin: {
+            attractors: []
+        }
     });
     body.ballLevel  = level;
     body.merged     = false;
@@ -662,7 +698,9 @@ function pickNextLevel(max) {
 // Bootstrap
 // ============================================================
 const isTest = !window.AndroidBridge && !window.webkit?.messageHandlers?.iOSBridge;
+
 if (isTest) {
+    // 테스트 모드: 테스트 패널 표시
     document.getElementById('test-start').onclick = () => {
         GameBridge.onInit({
             stage:      parseInt(document.getElementById('test-stage').value) || 1,
@@ -671,7 +709,19 @@ if (isTest) {
         });
     };
 } else {
+    // 앱 모드: 타임아웃으로 앱 호출을 기다리고, 응답 없으면 자동 초기화
     document.getElementById('test-panel').classList.add('hidden');
+
+    setTimeout(() => {
+        if (!GameBridge.initialized) {
+            console.warn('[GameBridge] 앱 호출 없이 자동 초기화');
+            GameBridge.onInit({
+                stage: 1,
+                highScore: 0,
+                customData: '{}'
+            });
+        }
+    }, 300);
 }
 </script>
 </body>

@@ -111,7 +111,65 @@ const GameBridge = {
 #### iOS 네이티브 브릿지 메서드 (앱에서 제공)
 - `webkit.messageHandlers.iOSBridge.postMessage({type, ...})` - 모든 통신은 이 채널로
 
-### 3. 필수 구현: 테스트 모드
+#### GameBridge 구현 필수 사항 ⚠️
+
+1. **window.GameBridge 전역 할당** (반드시 필수)
+   ```javascript
+   const GameBridge = { ... };
+   window.GameBridge = GameBridge;  // ← 이 줄이 필수!
+   ```
+
+2. **중복 초기화 방지**
+   ```javascript
+   const GameBridge = {
+       initialized: false,
+       onInit(data) {
+           if (this.initialized) return;  // 중복 호출 방지
+           this.initialized = true;
+           // ...
+       }
+   };
+   ```
+
+3. **타입 안전 파싱**
+   ```javascript
+   onInit(data) {
+       // 문자열/객체 모두 지원
+       if (typeof data === 'string') data = JSON.parse(data);
+       this.customData = typeof data.customData === 'string'
+           ? JSON.parse(data.customData || '{}')
+           : (data.customData || {});
+   }
+   ```
+
+### 3. 필수: 앱 호환성 설정
+
+#### ⚠️ CSS에서 color-scheme 설정
+```html
+<style>
+  :root { color-scheme: dark; }  /* ← 반드시 추가! */
+  html, body { width:100%; height:100%; overflow:hidden; }
+</style>
+```
+
+#### ⚠️ 앱 호출 타임아웃 자동 초기화 (300ms)
+**주의: 타임아웃은 300ms 이상 길게 설정하지 마세요! 게임 시작이 지연됩니다.**
+
+```javascript
+const isTestMode = !window.AndroidBridge && !window.webkit?.messageHandlers?.iOSBridge;
+
+if (!isTestMode) {
+  // 앱 호출 대기, 300ms 후 자동 초기화 (게임 시작 지연 방지)
+  setTimeout(() => {
+    if (!GameBridge.initialized) {
+      console.warn('[GameBridge] 앱 호출 없이 자동 초기화');
+      GameBridge.onInit({ stage:1, highScore:0, customData:'{}' });
+    }
+  }, 300);  // ← 300ms 권장 (800ms 이상 설정 금지!)
+}
+```
+
+### 4. 필수 구현: 테스트 모드
 
 앱 없이 브라우저에서 테스트할 수 있도록, 앱 브릿지가 없으면 테스트 패널을 표시해야 한다.
 
@@ -126,7 +184,7 @@ if (isTestMode) {
 }
 ```
 
-### 4. 난이도 시스템
+### 5. 난이도 시스템
 
 스테이지(stage)에 따라 난이도가 점진적으로 증가해야 한다.
 
@@ -144,7 +202,7 @@ function getDifficulty(stage) {
 - 게임별로 난이도 파라미터는 자유롭게 조정 가능
 - 핵심은 **stage가 올라갈수록 어려워져야 한다**는 것
 
-### 5. 스테이지 클리어 조건
+### 6. 스테이지 클리어 조건
 
 ```javascript
 function onGameOver(score, stage) {
@@ -160,7 +218,7 @@ function onGameOver(score, stage) {
 - `cleared: true` → 앱에서 다음 스테이지 진행 가능
 - `cleared: false` → 앱에서 같은 스테이지 재시도
 
-### 6. UI/UX 필수 요건
+### 7. UI/UX 필수 요건
 
 - **모바일 우선**: 터치 입력 기반, `user-scalable=no`
 - **전체 화면**: `100vw x 100vh`, `overflow: hidden`
@@ -173,7 +231,7 @@ function onGameOver(score, stage) {
 - **터치 이벤트 최적화**: `touch-action: none` (불필요한 브라우저 제스처 방지)
 - **어두운 테마**: 기본 배경은 어두운 색 계열 (`#1a1a2e` 등)
 
-### 7. 대상 사용자
+### 8. 대상 사용자
 
 - **초등학생** 대상 교육 앱의 보상용 미니게임
 - 조작이 단순하고 직관적이어야 함
@@ -204,6 +262,8 @@ function onGameOver(score, stage) {
 | `costType` | string | O | `"PLAYS"` 또는 `"TIME"` | `"PLAYS"` |
 | `costAmount` | number | O | 플레이 비용 (포인트) | `50` |
 | `playValue` | number | O | 판수 또는 초 (9999=무제한) | `9999` |
+| `unlockPrice` | number | O | 영구 해금 가격 (포인트) | `500` |
+| `version` | number | O | 게임 HTML 버전 (HTML 업데이트 시 +1) | `1` |
 | `isActive` | boolean | | 활성화 여부 (기본 true) | `true` |
 | `order` | number | | 정렬 순서 (낮을수록 위) | `1` |
 
@@ -218,6 +278,7 @@ firebase deploy --only hosting
 
 ## 체크리스트 (배포 전)
 
+### 기능 구현
 - [ ] `GameBridge.onInit()` 구현됨
 - [ ] `GameBridge.complete()` 호출됨 (게임 종료 시)
 - [ ] `GameBridge.updateScore()` 호출됨 (점수 변경 시)
@@ -227,3 +288,15 @@ firebase deploy --only hosting
 - [ ] 모바일 터치 입력 지원
 - [ ] 가로/세로 화면 대응 (또는 세로 고정)
 - [ ] 1~3분 내 한 판 완료 가능
+
+### 앱 호환성 (반드시 필수!)
+- [ ] `window.GameBridge = GameBridge;` 전역 할당됨
+- [ ] `GameBridge.initialized` 플래그로 중복 초기화 방지
+- [ ] CSS에 `:root { color-scheme: dark; }` 추가됨
+- [ ] 앱 호출 없을 때 자동 초기화 타임아웃 추가됨 (800ms)
+- [ ] 메타 태그에 `viewport-fit=cover` 포함됨
+
+### Firebase 설정
+- [ ] Firestore `mini_games` 컬렉션에 게임 문서 추가
+- [ ] `unlockPrice` (number) 필드 추가
+- [ ] `version` (number) 필드 추가
