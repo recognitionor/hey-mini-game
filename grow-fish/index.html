@@ -259,6 +259,67 @@
             pointer-events: none;
         }
 
+        #joystick {
+            position: absolute;
+            left: 14px;
+            bottom: calc(env(safe-area-inset-bottom, 0px) + 18px);
+            z-index: 7;
+            width: 126px;
+            height: 126px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            pointer-events: auto;
+            touch-action: none;
+        }
+
+        #joystick-base {
+            position: relative;
+            width: 110px;
+            height: 110px;
+            border-radius: 50%;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            background:
+                radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.02) 55%),
+                rgba(6, 18, 34, 0.52);
+            box-shadow: inset 0 0 22px rgba(124, 228, 255, 0.08), 0 16px 28px rgba(0, 0, 0, 0.18);
+            backdrop-filter: blur(10px);
+        }
+
+        #joystick-base::after {
+            content: 'MOVE';
+            position: absolute;
+            left: 50%;
+            top: calc(100% + 8px);
+            transform: translateX(-50%);
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: 0.18em;
+            color: rgba(228, 243, 255, 0.72);
+            white-space: nowrap;
+        }
+
+        #joystick-knob {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            width: 54px;
+            height: 54px;
+            margin-left: -27px;
+            margin-top: -27px;
+            border-radius: 50%;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            background:
+                radial-gradient(circle at 34% 28%, rgba(255, 255, 255, 0.32), rgba(255, 255, 255, 0.05) 58%),
+                linear-gradient(180deg, rgba(124, 228, 255, 0.34), rgba(75, 153, 255, 0.22));
+            box-shadow: 0 8px 18px rgba(0, 0, 0, 0.2);
+            transition: transform 0.04s linear, box-shadow 0.12s ease;
+        }
+
+        #joystick.active #joystick-knob {
+            box-shadow: 0 10px 20px rgba(75, 153, 255, 0.26), 0 0 18px rgba(124, 228, 255, 0.16);
+        }
+
         #test-panel {
             position: absolute;
             left: 50%;
@@ -415,11 +476,16 @@
 
         <div id="toast" class="hidden"></div>
         <div id="tip" class="hidden">작은 물고기와 먹이를 먹으며 커지고, 큰 물고기는 피하세요.</div>
+        <div id="joystick" class="hidden">
+            <div id="joystick-base">
+                <div id="joystick-knob"></div>
+            </div>
+        </div>
 
         <div id="test-panel">
             <div class="emoji">🐠</div>
             <h3>꼬마 물고기 키우기</h3>
-            <p>경단 사료로 속도를 올리고,<br>작은 물고기를 먹으며 몸집을 키우세요!</p>
+            <p>조이스틱으로 헤엄치고,<br>경단 사료와 작은 물고기로 성장하세요!</p>
             <label>
                 스테이지
                 <input type="number" id="t-stage" value="1" min="1" max="20">
@@ -574,6 +640,9 @@
             goalLabel: document.getElementById('goal-label'),
             toast: document.getElementById('toast'),
             tip: document.getElementById('tip'),
+            joystick: document.getElementById('joystick'),
+            joystickBase: document.getElementById('joystick-base'),
+            joystickKnob: document.getElementById('joystick-knob'),
             testPanel: document.getElementById('test-panel')
         };
 
@@ -621,6 +690,14 @@
                 pointerId: null,
                 x: window.innerWidth * 0.4,
                 y: window.innerHeight * 0.55
+            },
+            joystick: {
+                active: false,
+                pointerId: null,
+                x: 0,
+                y: 0,
+                intensity: 0,
+                maxDistance: 34
             },
             keys: {
                 up: false,
@@ -791,6 +868,39 @@
         function hideTip() {
             ui.tip.classList.add('hidden');
             state.hintTimer = 0;
+        }
+
+        function resetJoystick() {
+            state.joystick.active = false;
+            state.joystick.pointerId = null;
+            state.joystick.x = 0;
+            state.joystick.y = 0;
+            state.joystick.intensity = 0;
+            ui.joystick.classList.remove('active');
+            ui.joystickKnob.style.transform = 'translate(0px, 0px)';
+        }
+
+        function updateJoystickFromEvent(event) {
+            const rect = ui.joystickBase.getBoundingClientRect();
+            const centerX = rect.left + rect.width / 2;
+            const centerY = rect.top + rect.height / 2;
+            let dx = event.clientX - centerX;
+            let dy = event.clientY - centerY;
+            const distance = Math.hypot(dx, dy);
+            const limit = state.joystick.maxDistance;
+
+            if (distance > limit && distance > 0) {
+                const ratio = limit / distance;
+                dx *= ratio;
+                dy *= ratio;
+            }
+
+            state.joystick.x = dx / limit;
+            state.joystick.y = dy / limit;
+            state.joystick.intensity = clamp(distance / limit, 0, 1);
+
+            ui.joystick.classList.toggle('active', state.joystick.intensity > 0.02);
+            ui.joystickKnob.style.transform = `translate(${dx}px, ${dy}px)`;
         }
 
         function updateHud() {
@@ -1014,6 +1124,14 @@
         function getInputVector() {
             let x = 0;
             let y = 0;
+
+            if (state.joystick.intensity > 0.02) {
+                return {
+                    x: state.joystick.x,
+                    y: state.joystick.y,
+                    intensity: state.joystick.intensity
+                };
+            }
 
             if (state.touch.active) {
                 const dx = state.touch.x - state.player.x;
@@ -1742,9 +1860,12 @@
             state.baseBestScore = Math.max(Number(GameBridge.customData.bestScore || 0), Number(GameBridge.highScore || 0));
             state.touch.x = state.player.x + 30;
             state.touch.y = state.player.y;
+            state.touch.active = false;
+            resetJoystick();
 
+            ui.joystick.classList.remove('hidden');
             ui.tip.classList.remove('hidden');
-            ui.tip.textContent = '경단 사료는 속도 +1, 똥먹이는 속도 -1. 작은 물고기만 먹을 수 있고 큰 물고기와 닿으면 바로 패배합니다.';
+            ui.tip.textContent = '왼쪽 조이스틱으로 움직이세요. 경단 사료는 속도 +1, 똥먹이는 속도 -1입니다.';
 
             for (let index = 0; index < state.diff.openingFoods; index += 1) {
                 spawnFood(true);
@@ -1769,6 +1890,7 @@
         }
 
         function onPointerDown(event) {
+            if (event.pointerType !== 'mouse') return;
             if (!state.running || state.ended) return;
             const pos = pointerPosition(event);
 
@@ -1788,6 +1910,7 @@
         }
 
         function onPointerMove(event) {
+            if (event.pointerType !== 'mouse') return;
             if (!state.touch.active) return;
             if (state.touch.pointerId !== null && event.pointerId !== state.touch.pointerId) return;
 
@@ -1797,6 +1920,7 @@
         }
 
         function onPointerUp(event) {
+            if (event.pointerType !== 'mouse') return;
             if (state.touch.pointerId !== null && event.pointerId !== state.touch.pointerId) return;
 
             state.touch.active = false;
@@ -1805,6 +1929,45 @@
             if (canvas.releasePointerCapture) {
                 try {
                     canvas.releasePointerCapture(event.pointerId);
+                } catch (error) {
+                    // no-op
+                }
+            }
+        }
+
+        function onJoystickDown(event) {
+            if (!state.running || state.ended) return;
+            event.preventDefault();
+            hideTip();
+
+            state.joystick.active = true;
+            state.joystick.pointerId = event.pointerId;
+            updateJoystickFromEvent(event);
+
+            if (ui.joystickBase.setPointerCapture) {
+                try {
+                    ui.joystickBase.setPointerCapture(event.pointerId);
+                } catch (error) {
+                    // no-op
+                }
+            }
+        }
+
+        function onJoystickMove(event) {
+            if (!state.joystick.active) return;
+            if (state.joystick.pointerId !== null && event.pointerId !== state.joystick.pointerId) return;
+            event.preventDefault();
+            updateJoystickFromEvent(event);
+        }
+
+        function onJoystickUp(event) {
+            if (state.joystick.pointerId !== null && event.pointerId !== state.joystick.pointerId) return;
+            event.preventDefault();
+            resetJoystick();
+
+            if (ui.joystickBase.releasePointerCapture) {
+                try {
+                    ui.joystickBase.releasePointerCapture(event.pointerId);
                 } catch (error) {
                     // no-op
                 }
@@ -1831,6 +1994,10 @@
         canvas.addEventListener('pointermove', onPointerMove);
         canvas.addEventListener('pointerup', onPointerUp);
         canvas.addEventListener('pointercancel', onPointerUp);
+        ui.joystickBase.addEventListener('pointerdown', onJoystickDown);
+        ui.joystickBase.addEventListener('pointermove', onJoystickMove);
+        ui.joystickBase.addEventListener('pointerup', onJoystickUp);
+        ui.joystickBase.addEventListener('pointercancel', onJoystickUp);
 
         window.addEventListener('keydown', (event) => onKeyChange(event, true), { passive: false });
         window.addEventListener('keyup', (event) => onKeyChange(event, false), { passive: false });
