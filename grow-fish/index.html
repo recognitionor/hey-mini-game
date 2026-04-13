@@ -1,0 +1,1866 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>꼬마 물고기 키우기</title>
+    <style>
+        :root {
+            color-scheme: dark;
+            --panel-bg: rgba(7, 21, 38, 0.82);
+            --panel-border: rgba(255, 255, 255, 0.12);
+            --text-soft: rgba(228, 243, 255, 0.7);
+            --accent: #7ce4ff;
+            --accent-2: #ffd86f;
+            --danger: #ff8a8a;
+            --success: #90ffbc;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        html,
+        body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #04172b;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            touch-action: none;
+            user-select: none;
+            color: #fff;
+        }
+
+        button,
+        input,
+        textarea {
+            font: inherit;
+        }
+
+        #app {
+            position: fixed;
+            inset: 0;
+            overflow: hidden;
+            background:
+                radial-gradient(circle at top, rgba(124, 228, 255, 0.14), transparent 32%),
+                linear-gradient(180deg, #0b2f54 0%, #08365a 30%, #062746 62%, #04172b 100%);
+        }
+
+        #game-canvas {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        #hud {
+            position: absolute;
+            inset: 0 0 auto 0;
+            z-index: 5;
+            pointer-events: none;
+            padding:
+                calc(env(safe-area-inset-top, 0px) + 10px)
+                12px
+                0
+                12px;
+        }
+
+        .hud-top {
+            display: flex;
+            align-items: stretch;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .score-card {
+            flex: 1;
+            min-width: 0;
+            padding: 10px 12px;
+            border-radius: 18px;
+            background: linear-gradient(180deg, rgba(10, 29, 50, 0.84), rgba(8, 20, 36, 0.78));
+            border: 1px solid var(--panel-border);
+            box-shadow: 0 12px 22px rgba(0, 0, 0, 0.18);
+            backdrop-filter: blur(10px);
+        }
+
+        .eyebrow {
+            display: block;
+            font-size: 10px;
+            letter-spacing: 0.18em;
+            color: var(--text-soft);
+            margin-bottom: 4px;
+        }
+
+        #score-value {
+            font-size: 32px;
+            line-height: 0.9;
+            font-weight: 900;
+            letter-spacing: -0.04em;
+            text-shadow: 0 0 20px rgba(124, 228, 255, 0.28);
+        }
+
+        .pill-stack {
+            width: min(44vw, 170px);
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px;
+        }
+
+        .pill {
+            padding: 8px 10px;
+            border-radius: 16px;
+            background: var(--panel-bg);
+            border: 1px solid var(--panel-border);
+            box-shadow: 0 10px 18px rgba(0, 0, 0, 0.14);
+            backdrop-filter: blur(10px);
+            text-align: center;
+        }
+
+        .pill span,
+        .stat-card span,
+        .meter-head span:first-child {
+            display: block;
+            font-size: 10px;
+            letter-spacing: 0.14em;
+            color: var(--text-soft);
+            margin-bottom: 4px;
+        }
+
+        .pill strong {
+            display: block;
+            font-size: 16px;
+            font-weight: 800;
+        }
+
+        .hud-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 8px;
+            margin-top: 8px;
+        }
+
+        .stat-card {
+            min-width: 0;
+            padding: 8px 6px;
+            border-radius: 14px;
+            background: rgba(7, 20, 36, 0.64);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            text-align: center;
+            box-shadow: 0 10px 18px rgba(0, 0, 0, 0.12);
+            backdrop-filter: blur(10px);
+        }
+
+        .stat-card strong {
+            display: block;
+            font-size: 15px;
+            font-weight: 800;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .meter-block {
+            margin-top: 6px;
+            padding: 7px 10px 9px;
+            border-radius: 14px;
+            background: rgba(7, 20, 36, 0.64);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 10px 18px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
+        }
+
+        .meter-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 6px;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+        }
+
+        .meter-head span:last-child {
+            color: #fff;
+        }
+
+        .meter-track {
+            height: 10px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.08);
+            overflow: hidden;
+        }
+
+        .meter-fill {
+            width: 0%;
+            height: 100%;
+            border-radius: inherit;
+            transition: width 0.08s linear, filter 0.15s ease;
+        }
+
+        #time-fill {
+            background: linear-gradient(90deg, #7effc6 0%, #7ce4ff 54%, #4b99ff 100%);
+            box-shadow: 0 0 18px rgba(124, 228, 255, 0.34);
+        }
+
+        #goal-fill {
+            background: linear-gradient(90deg, #ffd86f 0%, #ffb272 48%, #7ce4ff 100%);
+            box-shadow: 0 0 18px rgba(255, 216, 111, 0.3);
+        }
+
+        #toast {
+            position: absolute;
+            left: 50%;
+            top: 45%;
+            transform: translate(-50%, -50%);
+            z-index: 6;
+            padding: 12px 18px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            background: rgba(7, 22, 38, 0.9);
+            box-shadow: 0 18px 34px rgba(0, 0, 0, 0.22);
+            font-size: 15px;
+            font-weight: 800;
+            letter-spacing: 0.02em;
+            text-align: center;
+            backdrop-filter: blur(12px);
+        }
+
+        #toast.danger {
+            background: rgba(60, 12, 18, 0.9);
+            border-color: rgba(255, 138, 138, 0.32);
+            color: #ffd5d5;
+        }
+
+        #tip {
+            position: absolute;
+            left: 50%;
+            bottom:
+                calc(env(safe-area-inset-bottom, 0px) + 18px);
+            transform: translateX(-50%);
+            z-index: 5;
+            width: min(92vw, 360px);
+            padding: 14px 16px;
+            border-radius: 22px;
+            background: rgba(6, 18, 34, 0.76);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            box-shadow: 0 18px 32px rgba(0, 0, 0, 0.18);
+            color: #f5fbff;
+            font-size: 14px;
+            font-weight: 700;
+            line-height: 1.5;
+            text-align: center;
+            backdrop-filter: blur(12px);
+            pointer-events: none;
+        }
+
+        #test-panel {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 10;
+            width: min(88vw, 340px);
+            padding: 28px 24px;
+            border-radius: 28px;
+            background: rgba(6, 16, 30, 0.96);
+            border: 1px solid rgba(124, 228, 255, 0.26);
+            box-shadow: 0 26px 70px rgba(0, 0, 0, 0.46);
+        }
+
+        #test-panel .emoji {
+            text-align: center;
+            font-size: 52px;
+            margin-bottom: 8px;
+        }
+
+        #test-panel h3 {
+            text-align: center;
+            font-size: 24px;
+            color: #9ceeff;
+            margin-bottom: 6px;
+        }
+
+        #test-panel p {
+            text-align: center;
+            color: var(--text-soft);
+            font-size: 13px;
+            line-height: 1.6;
+            margin-bottom: 20px;
+        }
+
+        #test-panel label {
+            display: block;
+            margin-bottom: 14px;
+            font-size: 13px;
+            color: #d9ecf6;
+        }
+
+        #test-panel input,
+        #test-panel textarea {
+            width: 100%;
+            margin-top: 6px;
+            padding: 10px 12px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            background: rgba(255, 255, 255, 0.05);
+            color: #fff;
+            outline: none;
+        }
+
+        #test-panel textarea {
+            resize: none;
+            height: 54px;
+        }
+
+        #test-panel button {
+            width: 100%;
+            margin-top: 8px;
+            padding: 14px 16px;
+            border: none;
+            border-radius: 16px;
+            background: linear-gradient(135deg, #7ce4ff 0%, #4b99ff 48%, #8affc6 100%);
+            color: #022038;
+            font-size: 17px;
+            font-weight: 900;
+            cursor: pointer;
+            box-shadow: 0 16px 28px rgba(75, 153, 255, 0.28);
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        @media (max-width: 430px) {
+            .hud-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+
+            .pill-stack {
+                width: min(48vw, 150px);
+            }
+
+            #score-value {
+                font-size: 28px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <canvas id="game-canvas"></canvas>
+
+        <div id="hud" class="hidden">
+            <div class="hud-top">
+                <div class="score-card">
+                    <span class="eyebrow">SCORE</span>
+                    <strong id="score-value">0</strong>
+                </div>
+                <div class="pill-stack">
+                    <div class="pill">
+                        <span>STAGE</span>
+                        <strong id="stage-value">1</strong>
+                    </div>
+                    <div class="pill">
+                        <span>BEST</span>
+                        <strong id="best-value">0</strong>
+                    </div>
+                </div>
+            </div>
+
+            <div class="hud-grid">
+                <div class="stat-card">
+                    <span>크기</span>
+                    <strong id="size-value">Lv 1</strong>
+                </div>
+                <div class="stat-card">
+                    <span>속도</span>
+                    <strong id="speed-value">+0</strong>
+                </div>
+                <div class="stat-card">
+                    <span>성장</span>
+                    <strong id="growth-value">0%</strong>
+                </div>
+                <div class="stat-card">
+                    <span>목표</span>
+                    <strong id="goal-value">0 / 0</strong>
+                </div>
+            </div>
+
+            <div class="meter-block">
+                <div class="meter-head">
+                    <span>남은 시간</span>
+                    <span id="timer-label">90s</span>
+                </div>
+                <div class="meter-track">
+                    <div id="time-fill" class="meter-fill"></div>
+                </div>
+            </div>
+
+            <div class="meter-block">
+                <div class="meter-head">
+                    <span>클리어 게이지</span>
+                    <span id="goal-label">0%</span>
+                </div>
+                <div class="meter-track">
+                    <div id="goal-fill" class="meter-fill"></div>
+                </div>
+            </div>
+        </div>
+
+        <div id="toast" class="hidden"></div>
+        <div id="tip" class="hidden">작은 물고기와 먹이를 먹으며 커지고, 큰 물고기는 피하세요.</div>
+
+        <div id="test-panel">
+            <div class="emoji">🐠</div>
+            <h3>꼬마 물고기 키우기</h3>
+            <p>경단 사료로 속도를 올리고,<br>작은 물고기를 먹으며 몸집을 키우세요!</p>
+            <label>
+                스테이지
+                <input type="number" id="t-stage" value="1" min="1" max="20">
+            </label>
+            <label>
+                최고점수
+                <input type="number" id="t-score" value="0">
+            </label>
+            <label>
+                커스텀 데이터 (JSON)
+                <textarea id="t-custom">{}</textarea>
+            </label>
+            <button id="t-start">게임 시작</button>
+        </div>
+    </div>
+
+    <script>
+        'use strict';
+
+        const TAU = Math.PI * 2;
+
+        function clamp(value, min, max) {
+            return Math.min(max, Math.max(min, value));
+        }
+
+        function rand(min, max) {
+            return Math.random() * (max - min) + min;
+        }
+
+        function lerp(from, to, amount) {
+            return from + (to - from) * amount;
+        }
+
+        function distanceSq(ax, ay, bx, by) {
+            const dx = ax - bx;
+            const dy = ay - by;
+            return dx * dx + dy * dy;
+        }
+
+        function hsl(hue, saturation, lightness) {
+            const safeHue = ((Math.round(hue) % 360) + 360) % 360;
+            return `hsl(${safeHue}, ${saturation}%, ${lightness}%)`;
+        }
+
+        function hsla(hue, saturation, lightness, alpha) {
+            const safeHue = ((Math.round(hue) % 360) + 360) % 360;
+            return `hsla(${safeHue}, ${saturation}%, ${lightness}%, ${alpha})`;
+        }
+
+        function parseCustomData(raw) {
+            if (!raw) return {};
+            if (typeof raw === 'object') return raw;
+
+            try {
+                return JSON.parse(raw);
+            } catch (error) {
+                console.warn('[GameBridge] customData parse failed', error);
+                return {};
+            }
+        }
+
+        const GameBridge = {
+            stage: 1,
+            highScore: 0,
+            customData: {},
+            initialized: false,
+
+            onInit(data) {
+                if (this.initialized) return;
+                this.initialized = true;
+
+                if (typeof data === 'string') {
+                    data = JSON.parse(data);
+                }
+
+                this.stage = Number(data.stage) || 1;
+                this.highScore = Number(data.highScore) || 0;
+                this.customData = parseCustomData(data.customData || {});
+
+                ui.testPanel.classList.add('hidden');
+                startGame();
+            },
+
+            updateScore(score) {
+                if (window.AndroidBridge) {
+                    AndroidBridge.updateScore(score);
+                } else if (window.webkit?.messageHandlers?.iOSBridge) {
+                    webkit.messageHandlers.iOSBridge.postMessage({
+                        type: 'updateScore',
+                        score
+                    });
+                }
+            },
+
+            complete(result) {
+                const payload = JSON.stringify(result);
+
+                if (window.AndroidBridge) {
+                    AndroidBridge.gameComplete(payload);
+                } else if (window.webkit?.messageHandlers?.iOSBridge) {
+                    webkit.messageHandlers.iOSBridge.postMessage({
+                        type: 'gameComplete',
+                        score: result.score,
+                        cleared: result.cleared,
+                        customData: JSON.stringify(result.customData || {})
+                    });
+                } else {
+                    alert(`게임 완료!\n점수: ${result.score}\n클리어: ${result.cleared ? '✅ 성공!' : '❌ 실패'}`);
+                    location.reload();
+                }
+            },
+
+            saveData(data) {
+                const payload = JSON.stringify(data);
+
+                if (window.AndroidBridge) {
+                    AndroidBridge.saveData(payload);
+                } else if (window.webkit?.messageHandlers?.iOSBridge) {
+                    webkit.messageHandlers.iOSBridge.postMessage({
+                        type: 'saveData',
+                        data: payload
+                    });
+                }
+            },
+
+            log(message) {
+                console.log('[GameBridge]', message);
+
+                if (window.AndroidBridge) {
+                    AndroidBridge.log(message);
+                }
+            }
+        };
+
+        window.GameBridge = GameBridge;
+
+        const canvas = document.getElementById('game-canvas');
+        const ctx = canvas.getContext('2d');
+
+        const ui = {
+            hud: document.getElementById('hud'),
+            score: document.getElementById('score-value'),
+            stage: document.getElementById('stage-value'),
+            best: document.getElementById('best-value'),
+            size: document.getElementById('size-value'),
+            speed: document.getElementById('speed-value'),
+            growth: document.getElementById('growth-value'),
+            goal: document.getElementById('goal-value'),
+            timerLabel: document.getElementById('timer-label'),
+            timeFill: document.getElementById('time-fill'),
+            goalFill: document.getElementById('goal-fill'),
+            goalLabel: document.getElementById('goal-label'),
+            toast: document.getElementById('toast'),
+            tip: document.getElementById('tip'),
+            testPanel: document.getElementById('test-panel')
+        };
+
+        const state = {
+            width: window.innerWidth,
+            height: window.innerHeight,
+            dpr: Math.min(2, window.devicePixelRatio || 1),
+            running: false,
+            ended: false,
+            resultSent: false,
+            raf: 0,
+            lastTs: 0,
+            elapsed: 0,
+            ambientPhase: 0,
+            score: 0,
+            scoreReported: -1,
+            diff: null,
+            timeLeft: 0,
+            combo: 0,
+            comboTimer: 0,
+            foods: [],
+            fishes: [],
+            particles: [],
+            bubbles: [],
+            seaweed: [],
+            player: null,
+            foodSpawnTimer: 0,
+            fishSpawnTimer: 0,
+            toastTimer: 0,
+            hintTimer: 0,
+            shake: 0,
+            dangerPulse: 0,
+            playTop: 132,
+            playBottom: window.innerHeight - 28,
+            saveCooldown: 0,
+            totalEaten: 0,
+            baseBestSize: 1,
+            baseTotalFoodEaten: 0,
+            baseBestScore: 0,
+            recordBroken: false,
+            endReason: '',
+            completeTimer: 0,
+            touch: {
+                active: false,
+                pointerId: null,
+                x: window.innerWidth * 0.4,
+                y: window.innerHeight * 0.55
+            },
+            keys: {
+                up: false,
+                down: false,
+                left: false,
+                right: false
+            }
+        };
+
+        function getDifficulty(stage) {
+            const level = stage - 1;
+
+            return {
+                timeLimit: Math.max(62, 105 - level * 4),
+                targetScore: 140 + level * 110,
+                foodSpawnInterval: Math.max(0.24, 0.52 - level * 0.015),
+                fishSpawnInterval: Math.max(0.56, 1.45 - level * 0.07),
+                predatorChance: Math.min(0.42, 0.12 + level * 0.035),
+                fishSpeed: 62 + level * 11,
+                playerMaxSpeed: 255 + level * 10,
+                playerAccel: 840 + level * 44,
+                chaseStrength: 24 + level * 5,
+                fleeStrength: 28 + level * 3.2,
+                maxFoods: 20 + Math.min(10, level * 2),
+                maxFishes: 3 + Math.min(8, Math.floor(level * 0.85)),
+                openingFoods: 8 + Math.min(4, Math.floor(level / 2)),
+                openingFishes: 2 + Math.min(5, Math.floor(level / 2)),
+                openingSmallFishes: 2 + Math.min(2, Math.floor(level / 3))
+            };
+        }
+
+        function growthNeeded(sizeLevel) {
+            return 28 + sizeLevel * 12;
+        }
+
+        function isFishEdible(fishRadius) {
+            return fishRadius < state.player.radius;
+        }
+
+        function isFishDangerous(fishRadius) {
+            return fishRadius >= state.player.radius;
+        }
+
+        function updatePlayfieldBounds() {
+            const fallbackTop = 108;
+            const hudBottom = ui.hud.classList.contains('hidden')
+                ? fallbackTop
+                : ui.hud.getBoundingClientRect().bottom;
+
+            state.playTop = clamp(Math.ceil(hudBottom + 10), 104, Math.max(120, state.height * 0.42));
+            state.playBottom = state.height - 28;
+        }
+
+        function resizeCanvas() {
+            state.width = window.innerWidth;
+            state.height = window.innerHeight;
+            state.dpr = Math.min(2, window.devicePixelRatio || 1);
+
+            canvas.width = Math.floor(state.width * state.dpr);
+            canvas.height = Math.floor(state.height * state.dpr);
+            canvas.style.width = `${state.width}px`;
+            canvas.style.height = `${state.height}px`;
+
+            ctx.setTransform(state.dpr, 0, 0, state.dpr, 0, 0);
+            updatePlayfieldBounds();
+
+            if (state.player) {
+                state.player.x = clamp(state.player.x, 24, state.width - 24);
+                state.player.y = clamp(state.player.y, state.playTop + 18, state.playBottom);
+            }
+
+            buildSeaweed();
+        }
+
+        function buildSeaweed() {
+            state.seaweed = [];
+
+            const count = Math.max(7, Math.round(state.width / 54));
+            for (let index = 0; index < count; index += 1) {
+                state.seaweed.push({
+                    x: (index / Math.max(1, count - 1)) * state.width + rand(-24, 24),
+                    height: rand(80, 170),
+                    width: rand(16, 34),
+                    sway: rand(0.6, 1.3),
+                    bend: rand(-0.45, 0.45),
+                    hue: rand(130, 180)
+                });
+            }
+        }
+
+        function resetBubble(bubble, randomY = false) {
+            bubble.x = rand(8, state.width - 8);
+            bubble.y = randomY ? rand(0, state.height) : state.height + rand(10, 120);
+            bubble.r = rand(2.4, 8.5);
+            bubble.speed = rand(14, 44);
+            bubble.alpha = rand(0.16, 0.48);
+            bubble.phase = rand(0, TAU);
+            bubble.drift = rand(8, 24);
+        }
+
+        function seedBubbles() {
+            state.bubbles = [];
+
+            const count = Math.max(22, Math.round(state.width / 16));
+            for (let index = 0; index < count; index += 1) {
+                const bubble = {};
+                resetBubble(bubble, true);
+                state.bubbles.push(bubble);
+            }
+        }
+
+        function createPlayer() {
+            const availableHeight = Math.max(180, state.playBottom - state.playTop);
+            return {
+                x: state.width * 0.32,
+                y: state.playTop + availableHeight * 0.48,
+                vx: 0,
+                vy: 0,
+                radius: 26,
+                targetRadius: 26,
+                sizeLevel: 1,
+                speedLevel: 0,
+                growth: 0,
+                flash: 0,
+                trail: 0,
+                facing: 1
+            };
+        }
+
+        function buildProgressPayload() {
+            return {
+                bestSizeLevel: Math.max(state.baseBestSize, state.player ? state.player.sizeLevel : state.baseBestSize),
+                bestSpeedLevel: Math.max(Number(GameBridge.customData.bestSpeedLevel || 0), state.player ? state.player.speedLevel : 0),
+                totalFoodEaten: state.baseTotalFoodEaten + state.totalEaten,
+                lastScore: Math.round(state.score),
+                lastSpeedLevel: state.player ? state.player.speedLevel : 0,
+                bestScore: Math.max(state.baseBestScore, Math.round(state.score)),
+                lastStage: GameBridge.stage
+            };
+        }
+
+        function persistProgress(force = false) {
+            if (!force && state.saveCooldown > 0) return;
+            state.saveCooldown = 6;
+            GameBridge.saveData(buildProgressPayload());
+        }
+
+        function reportScore() {
+            const rounded = Math.round(state.score);
+            if (rounded === state.scoreReported) return;
+
+            state.scoreReported = rounded;
+            GameBridge.updateScore(rounded);
+        }
+
+        function showToast(message, duration = 1.1, variant = 'normal') {
+            state.toastTimer = duration;
+            ui.toast.textContent = message;
+            ui.toast.classList.remove('hidden');
+            ui.toast.classList.toggle('danger', variant === 'danger');
+        }
+
+        function hideToast() {
+            ui.toast.classList.add('hidden');
+            ui.toast.classList.remove('danger');
+        }
+
+        function hideTip() {
+            ui.tip.classList.add('hidden');
+            state.hintTimer = 0;
+        }
+
+        function updateHud() {
+            if (!state.player || !state.diff) return;
+
+            const goalPercent = clamp((state.score / state.diff.targetScore) * 100, 0, 100);
+            const timePercent = clamp((state.timeLeft / state.diff.timeLimit) * 100, 0, 100);
+            const growthPercent = clamp((state.player.growth / growthNeeded(state.player.sizeLevel)) * 100, 0, 100);
+            const liveBest = Math.max(GameBridge.highScore || 0, Math.round(state.score));
+            const speedPrefix = state.player.speedLevel >= 0 ? '+' : '';
+
+            ui.score.textContent = String(Math.round(state.score));
+            ui.stage.textContent = String(GameBridge.stage);
+            ui.best.textContent = String(liveBest);
+            ui.size.textContent = `Lv ${state.player.sizeLevel}`;
+            ui.speed.textContent = `${speedPrefix}${state.player.speedLevel}`;
+            ui.growth.textContent = `${Math.round(growthPercent)}%`;
+            ui.goal.textContent = `${Math.round(state.score)} / ${state.diff.targetScore}`;
+            ui.timerLabel.textContent = `${Math.ceil(state.timeLeft)}s`;
+            ui.goalLabel.textContent = `${Math.round(goalPercent)}%`;
+
+            ui.timeFill.style.width = `${timePercent}%`;
+            ui.goalFill.style.width = `${goalPercent}%`;
+            ui.timeFill.style.filter = state.timeLeft <= 10 ? 'saturate(1.45) brightness(1.18)' : 'none';
+
+            ui.speed.style.color = state.player.speedLevel < 0
+                ? '#ffb2a0'
+                : state.player.speedLevel > 0
+                    ? '#98ffd2'
+                    : '#ecfbff';
+        }
+
+        function emitBurst(x, y, count, hue, scale = 1) {
+            for (let index = 0; index < count; index += 1) {
+                const angle = rand(0, TAU);
+                const speed = rand(30, 150) * scale;
+
+                state.particles.push({
+                    x,
+                    y,
+                    vx: Math.cos(angle) * speed,
+                    vy: Math.sin(angle) * speed,
+                    r: rand(2, 5.5) * scale,
+                    hue,
+                    alpha: rand(0.52, 0.9),
+                    life: rand(0.45, 0.95),
+                    maxLife: 0
+                });
+
+                state.particles[state.particles.length - 1].maxLife = state.particles[state.particles.length - 1].life;
+            }
+
+            if (state.particles.length > 180) {
+                state.particles.splice(0, state.particles.length - 180);
+            }
+        }
+
+        function addScore(amount) {
+            if (state.ended) return;
+
+            state.score += amount;
+
+            if (!state.recordBroken && state.score > GameBridge.highScore) {
+                state.recordBroken = true;
+                showToast('최고 점수 돌파!', 0.9);
+            }
+
+            reportScore();
+            updateHud();
+
+            if (state.score >= state.diff.targetScore) {
+                finishGame('goal');
+            }
+        }
+
+        function gainGrowth(amount) {
+            const player = state.player;
+            player.growth += amount;
+
+            let leveledUp = false;
+            while (player.growth >= growthNeeded(player.sizeLevel) && player.sizeLevel < 18) {
+                player.growth -= growthNeeded(player.sizeLevel);
+                player.sizeLevel += 1;
+                player.targetRadius = Math.min(84, player.targetRadius + 3.2);
+                leveledUp = true;
+            }
+
+            if (leveledUp) {
+                state.shake = Math.max(state.shake, 6);
+                player.flash = 0.7;
+                emitBurst(player.x, player.y, 18, 44, 1.1);
+                showToast(`쑥쑥 성장! Lv.${player.sizeLevel}`, 1.0);
+                persistProgress(true);
+            }
+
+            updateHud();
+        }
+
+        function spawnFood(force = false) {
+            if (!force && state.foods.length >= state.diff.maxFoods) return;
+
+            const poop = Math.random() < 0.22;
+            const minY = state.playTop + 18;
+            const maxY = Math.max(minY + 30, state.playBottom - 36);
+
+            state.foods.push({
+                x: rand(20, state.width - 20),
+                y: rand(minY, maxY),
+                r: poop ? rand(4.6, 6.2) : rand(6.8, 8.8),
+                kind: poop ? 'poop' : 'dumpling',
+                value: 0,
+                speedDelta: poop ? -1 : 1,
+                vx: rand(-10, 10),
+                vy: rand(-8, 8),
+                drift: rand(8, 18),
+                phase: rand(0, TAU),
+                life: rand(10, 16)
+            });
+        }
+
+        function spawnFish(forceSmall = false) {
+            if (!state.player) return;
+            if (!forceSmall && state.fishes.length >= state.diff.maxFishes) return;
+
+            const playerRadius = state.player.radius;
+            const spawnFromLeft = Math.random() < 0.5;
+            const roll = Math.random();
+            const predatorChance = state.diff.predatorChance;
+            const minY = state.playTop + 22;
+            const maxY = Math.max(minY + 40, state.playBottom - 28);
+
+            let radius;
+            if (forceSmall || roll > predatorChance) {
+                radius = rand(Math.max(14, playerRadius * 0.48), Math.max(18, playerRadius * 0.82));
+            } else {
+                radius = rand(playerRadius * 1.04, playerRadius * (1.26 + predatorChance));
+            }
+
+            radius = clamp(radius, 14, 84);
+
+            state.fishes.push({
+                x: spawnFromLeft ? -radius - 20 : state.width + radius + 20,
+                y: rand(minY, maxY),
+                r: radius,
+                dir: spawnFromLeft ? 1 : -1,
+                speed: (state.diff.fishSpeed + rand(0, 28)) * (0.86 + 16 / (radius + 36)) * (radius >= playerRadius ? rand(0.84, 1.18) : rand(0.88, 1.12)),
+                agility: radius > playerRadius * 1.18 ? rand(0.88, 1.34) : rand(0.84, 1.18),
+                vy: rand(-6, 6),
+                sway: rand(10, 28),
+                phase: rand(0, TAU),
+                hue: rand(12, 220),
+                accentHue: rand(180, 340),
+                value: Math.round(10 + radius * 1.8)
+            });
+        }
+
+        function consumeFood(index) {
+            const food = state.foods[index];
+            if (!food) return;
+
+            state.foods.splice(index, 1);
+            state.totalEaten += 1;
+
+            state.player.speedLevel = clamp(state.player.speedLevel + food.speedDelta, -4, 9);
+            state.player.trail = Math.max(state.player.trail, food.kind === 'dumpling' ? 0.3 : 0.14);
+
+            if (food.kind === 'dumpling') {
+                emitBurst(food.x, food.y, 10, 42, 0.95);
+                showToast(`경단 사료! 속도 ${state.player.speedLevel >= 0 ? '+' : ''}${state.player.speedLevel}`, 0.8);
+            } else {
+                emitBurst(food.x, food.y, 8, 24, 0.8);
+                showToast(`똥먹이! 속도 ${state.player.speedLevel}`, 0.9, 'danger');
+            }
+
+            updateHud();
+            persistProgress(true);
+        }
+
+        function consumeFish(index) {
+            const fish = state.fishes[index];
+            if (!fish) return;
+
+            state.fishes.splice(index, 1);
+            state.totalEaten += 1;
+            state.combo += 1;
+            state.comboTimer = 2.6;
+
+            const scoreGain = Math.round(fish.value * (1 + Math.min(0.45, state.combo * 0.08)));
+            addScore(scoreGain);
+            gainGrowth(Math.max(10, fish.r * 0.92));
+
+            state.player.trail = 0.35;
+            state.player.flash = 0.26;
+            emitBurst(fish.x, fish.y, 12, fish.hue, 1.0);
+
+            if (state.combo >= 3) {
+                showToast(`연속 포식 x${state.combo}`, 0.85);
+            }
+        }
+
+        function damagePlayer(fish, dx, dy) {
+            if (state.ended) return;
+
+            const player = state.player;
+            const distance = Math.max(1, Math.hypot(dx, dy));
+            player.flash = 1;
+            state.combo = 0;
+            state.comboTimer = 0;
+            state.shake = 16;
+
+            player.vx += (dx / distance) * 260;
+            player.vy += (dy / distance) * 260;
+            fish.dir *= -1;
+            fish.vy -= (dy / distance) * 90;
+
+            emitBurst(player.x, player.y, 18, 0, 1.1);
+            showToast('큰 물고기와 닿아서 패배!', 1.1, 'danger');
+            finishGame('caught');
+        }
+
+        function getInputVector() {
+            let x = 0;
+            let y = 0;
+
+            if (state.touch.active) {
+                const dx = state.touch.x - state.player.x;
+                const dy = state.touch.y - state.player.y;
+                const distance = Math.hypot(dx, dy);
+
+                if (distance > 8) {
+                    return {
+                        x: dx / distance,
+                        y: dy / distance,
+                        intensity: clamp(distance / 122, 0.32, 1)
+                    };
+                }
+            }
+
+            if (state.keys.left) x -= 1;
+            if (state.keys.right) x += 1;
+            if (state.keys.up) y -= 1;
+            if (state.keys.down) y += 1;
+
+            if (x === 0 && y === 0) {
+                return { x: 0, y: 0, intensity: 0 };
+            }
+
+            const distance = Math.hypot(x, y) || 1;
+            return { x: x / distance, y: y / distance, intensity: 1 };
+        }
+
+        function updatePlayer(dt, frozen = false) {
+            const player = state.player;
+            const input = frozen ? { x: 0, y: 0, intensity: 0 } : getInputVector();
+
+            player.flash = Math.max(0, player.flash - dt * 1.8);
+            player.trail = Math.max(0, player.trail - dt);
+            player.radius = lerp(player.radius, player.targetRadius, clamp(dt * 5.2, 0, 1));
+
+            if (!frozen && input.intensity > 0) {
+                const speedLimit = clamp(state.diff.playerMaxSpeed + player.speedLevel * 18, 170, state.diff.playerMaxSpeed + 140);
+                const accel = Math.max(680, state.diff.playerAccel + player.speedLevel * 64) * input.intensity;
+                player.vx += input.x * accel * dt;
+                player.vy += input.y * accel * dt;
+
+                const desiredVx = input.x * speedLimit;
+                const desiredVy = input.y * speedLimit;
+                const steerBlend = clamp(dt * (5.5 + input.intensity * 5.5), 0, 0.34);
+                player.vx = lerp(player.vx, desiredVx, steerBlend);
+                player.vy = lerp(player.vy, desiredVy, steerBlend);
+
+                const speed = Math.hypot(player.vx, player.vy);
+                if (speed > speedLimit) {
+                    const scale = speedLimit / speed;
+                    player.vx *= scale;
+                    player.vy *= scale;
+                }
+
+                if (Math.abs(input.x) > 0.08) {
+                    player.facing = input.x >= 0 ? 1 : -1;
+                }
+            }
+
+            const damping = frozen ? 0.84 : (input.intensity > 0 ? 0.965 : 0.91);
+            player.vx *= damping;
+            player.vy *= damping;
+            player.vy += Math.sin(state.ambientPhase * 3.4 + player.sizeLevel) * 4 * dt;
+
+            player.x += player.vx * dt;
+            player.y += player.vy * dt;
+
+            const minX = player.radius + 12;
+            const maxX = state.width - player.radius - 12;
+            const minY = state.playTop + player.radius * 0.25;
+            const maxY = state.playBottom - player.radius * 0.35;
+
+            if (player.x < minX) {
+                player.x = minX;
+                player.vx = Math.abs(player.vx) * 0.3;
+                player.facing = 1;
+            }
+
+            if (player.x > maxX) {
+                player.x = maxX;
+                player.vx = -Math.abs(player.vx) * 0.3;
+                player.facing = -1;
+            }
+
+            if (player.y < minY) {
+                player.y = minY;
+                player.vy = Math.abs(player.vy) * 0.25;
+            }
+
+            if (player.y > maxY) {
+                player.y = maxY;
+                player.vy = -Math.abs(player.vy) * 0.25;
+            }
+        }
+
+        function updateFoods(dt) {
+            for (let index = state.foods.length - 1; index >= 0; index -= 1) {
+                const food = state.foods[index];
+
+                food.phase += dt * 1.8;
+                food.life -= dt;
+                food.x += food.vx * dt + Math.sin(food.phase) * food.drift * dt;
+                food.y += food.vy * dt + Math.cos(food.phase * 0.7) * 8 * dt;
+
+                if (food.x < 10 || food.x > state.width - 10) {
+                    food.vx *= -1;
+                }
+
+                if (food.y < state.playTop + 10) {
+                    food.vy += 18 * dt;
+                } else if (food.y > state.playBottom) {
+                    food.vy -= 24 * dt;
+                }
+
+                const reach = state.player.radius * 0.72 + food.r + 2;
+                if (distanceSq(state.player.x, state.player.y, food.x, food.y) <= reach * reach) {
+                    consumeFood(index);
+                    continue;
+                }
+
+                if (food.life <= 0) {
+                    state.foods.splice(index, 1);
+                }
+            }
+        }
+
+        function updateFishes(dt) {
+            for (let index = state.fishes.length - 1; index >= 0; index -= 1) {
+                const fish = state.fishes[index];
+                const edible = isFishEdible(fish.r);
+                const dangerous = isFishDangerous(fish.r);
+
+                fish.phase += dt * (1.45 + fish.speed / 110);
+                fish.x += fish.dir * fish.speed * dt;
+                fish.y += Math.sin(fish.phase) * fish.sway * dt;
+                fish.y += fish.vy * dt;
+                fish.vy *= 0.99;
+
+                const dx = state.player.x - fish.x;
+                const dy = state.player.y - fish.y;
+                const distance = Math.hypot(dx, dy);
+
+                if (dangerous) {
+                    if (distance < 310) {
+                        fish.x += Math.sign(dx) * state.diff.chaseStrength * fish.agility * dt;
+                        fish.vy += clamp(dy * 0.42, -52, 52) * fish.agility * dt;
+                        state.dangerPulse = Math.max(state.dangerPulse, 1 - distance / 310);
+                    }
+                } else if (edible && distance < 225) {
+                    fish.x -= Math.sign(dx) * state.diff.fleeStrength * fish.agility * dt;
+                    fish.vy -= clamp(dy * 0.38, -44, 44) * fish.agility * dt;
+                }
+
+                if (fish.y < state.playTop + 12) {
+                    fish.vy += 30 * dt;
+                } else if (fish.y > state.playBottom + 2) {
+                    fish.vy -= 30 * dt;
+                }
+
+                const hitRadius = state.player.radius * 0.92 + fish.r * 0.88;
+                if (distanceSq(state.player.x, state.player.y, fish.x, fish.y) <= hitRadius * hitRadius) {
+                    if (edible) {
+                        consumeFish(index);
+                        continue;
+                    }
+
+                    if (dangerous) {
+                        damagePlayer(fish, dx, dy);
+                    }
+                }
+
+                if (
+                    fish.x < -150 ||
+                    fish.x > state.width + 150 ||
+                    fish.y < state.playTop - 44 ||
+                    fish.y > state.height + 40
+                ) {
+                    state.fishes.splice(index, 1);
+                }
+            }
+        }
+
+        function updateBubbles(dt) {
+            for (const bubble of state.bubbles) {
+                bubble.phase += dt;
+                bubble.y -= bubble.speed * dt;
+                bubble.x += Math.sin(state.ambientPhase * 0.9 + bubble.phase) * bubble.drift * dt * 0.4;
+
+                if (bubble.y < -bubble.r - 6) {
+                    resetBubble(bubble, false);
+                }
+            }
+        }
+
+        function updateParticles(dt) {
+            for (let index = state.particles.length - 1; index >= 0; index -= 1) {
+                const particle = state.particles[index];
+
+                particle.x += particle.vx * dt;
+                particle.y += particle.vy * dt;
+                particle.vx *= 0.98;
+                particle.vy *= 0.985;
+                particle.vy += 6 * dt;
+                particle.life -= dt;
+
+                if (particle.life <= 0) {
+                    state.particles.splice(index, 1);
+                }
+            }
+        }
+
+        function finishGame(reason) {
+            if (state.ended) return;
+
+            state.ended = true;
+            state.endReason = reason;
+            state.completeTimer = 1.15;
+            state.touch.active = false;
+            hideTip();
+            persistProgress(true);
+
+            if (reason === 'goal') {
+                state.shake = 8;
+                emitBurst(state.player.x, state.player.y, 26, 48, 1.15);
+                showToast('목표 달성! 바다의 왕이 되었어요!', 1.1);
+            } else if (reason === 'timeout') {
+                showToast('시간 종료! 다시 한 번 도전해요.', 1.1, 'danger');
+            } else {
+                showToast('큰 물고기와 닿아서 패배!', 1.1, 'danger');
+            }
+        }
+
+        function completeGame() {
+            if (state.resultSent) return;
+            state.resultSent = true;
+            state.running = false;
+
+            GameBridge.complete({
+                score: Math.round(state.score),
+                cleared: state.endReason === 'goal' || Math.round(state.score) >= state.diff.targetScore,
+                customData: buildProgressPayload()
+            });
+        }
+
+        function drawBackground() {
+            const topGradient = ctx.createLinearGradient(0, 0, 0, state.height);
+            topGradient.addColorStop(0, '#0b2f54');
+            topGradient.addColorStop(0.32, '#08365a');
+            topGradient.addColorStop(0.68, '#062746');
+            topGradient.addColorStop(1, '#04172b');
+
+            ctx.fillStyle = topGradient;
+            ctx.fillRect(0, 0, state.width, state.height);
+
+            const glow = ctx.createRadialGradient(state.width * 0.5, -30, 20, state.width * 0.5, -30, state.width * 0.8);
+            glow.addColorStop(0, 'rgba(163, 236, 255, 0.18)');
+            glow.addColorStop(1, 'rgba(163, 236, 255, 0)');
+            ctx.fillStyle = glow;
+            ctx.fillRect(0, 0, state.width, state.height);
+
+            for (let index = 0; index < 4; index += 1) {
+                const x = state.width * (0.12 + index * 0.22) + Math.sin(state.ambientPhase * 0.6 + index) * 18;
+                ctx.fillStyle = `rgba(255,255,255,${0.03 + index * 0.01})`;
+                ctx.beginPath();
+                ctx.moveTo(x - 38, 0);
+                ctx.lineTo(x + 24, 0);
+                ctx.lineTo(x + 120, state.height * 0.82);
+                ctx.lineTo(x - 96, state.height * 0.82);
+                ctx.closePath();
+                ctx.fill();
+            }
+
+            ctx.fillStyle = 'rgba(255,255,255,0.04)';
+            for (let index = 0; index < 14; index += 1) {
+                const x = (index / 13) * state.width + Math.sin(state.ambientPhase * 0.4 + index) * 10;
+                const y = 80 + index * 14;
+                ctx.beginPath();
+                ctx.arc(x, y, 1.3 + (index % 3), 0, TAU);
+                ctx.fill();
+            }
+        }
+
+        function drawSeaFloor() {
+            ctx.fillStyle = '#07233b';
+            ctx.beginPath();
+            ctx.moveTo(0, state.height);
+            ctx.lineTo(0, state.height - 68);
+            ctx.bezierCurveTo(
+                state.width * 0.18, state.height - 110,
+                state.width * 0.34, state.height - 24,
+                state.width * 0.5, state.height - 56
+            );
+            ctx.bezierCurveTo(
+                state.width * 0.66, state.height - 92,
+                state.width * 0.82, state.height - 16,
+                state.width, state.height - 72
+            );
+            ctx.lineTo(state.width, state.height);
+            ctx.closePath();
+            ctx.fill();
+
+            for (const weed of state.seaweed) {
+                const sway = Math.sin(state.ambientPhase * weed.sway + weed.x * 0.02) * 12;
+                const baseY = state.height - 16;
+                const topY = baseY - weed.height;
+                const bendX = weed.x + sway + weed.bend * weed.height;
+
+                ctx.strokeStyle = hsla(weed.hue, 54, 36, 0.82);
+                ctx.lineWidth = weed.width;
+                ctx.lineCap = 'round';
+                ctx.beginPath();
+                ctx.moveTo(weed.x, baseY);
+                ctx.bezierCurveTo(
+                    weed.x + sway * 0.25,
+                    baseY - weed.height * 0.3,
+                    bendX,
+                    baseY - weed.height * 0.72,
+                    bendX,
+                    topY
+                );
+                ctx.stroke();
+
+                ctx.strokeStyle = hsla(weed.hue + 22, 70, 58, 0.18);
+                ctx.lineWidth = Math.max(4, weed.width * 0.18);
+                ctx.beginPath();
+                ctx.moveTo(weed.x - weed.width * 0.15, baseY - weed.height * 0.1);
+                ctx.quadraticCurveTo(
+                    weed.x + sway * 0.18,
+                    baseY - weed.height * 0.48,
+                    bendX - weed.width * 0.16,
+                    topY + weed.height * 0.12
+                );
+                ctx.stroke();
+            }
+        }
+
+        function drawBubbles() {
+            for (const bubble of state.bubbles) {
+                ctx.strokeStyle = `rgba(220, 245, 255, ${bubble.alpha})`;
+                ctx.lineWidth = 1.2;
+                ctx.beginPath();
+                ctx.arc(bubble.x, bubble.y, bubble.r, 0, TAU);
+                ctx.stroke();
+
+                ctx.fillStyle = `rgba(255, 255, 255, ${bubble.alpha * 0.35})`;
+                ctx.beginPath();
+                ctx.arc(bubble.x - bubble.r * 0.28, bubble.y - bubble.r * 0.28, bubble.r * 0.24, 0, TAU);
+                ctx.fill();
+            }
+        }
+
+        function drawFoods() {
+            for (const food of state.foods) {
+                if (food.kind === 'dumpling') {
+                    ctx.fillStyle = 'rgba(255, 241, 205, 0.16)';
+                    ctx.beginPath();
+                    ctx.arc(food.x, food.y, food.r * 2.4, 0, TAU);
+                    ctx.fill();
+
+                    const dumplingGrad = ctx.createRadialGradient(
+                        food.x - food.r * 0.4,
+                        food.y - food.r * 0.4,
+                        1,
+                        food.x,
+                        food.y,
+                        food.r * 1.4
+                    );
+                    dumplingGrad.addColorStop(0, '#fffef5');
+                    dumplingGrad.addColorStop(0.55, '#ffd98e');
+                    dumplingGrad.addColorStop(1, '#ffb24f');
+                    ctx.fillStyle = dumplingGrad;
+                    ctx.beginPath();
+                    ctx.arc(food.x, food.y, food.r, 0, TAU);
+                    ctx.fill();
+
+                    ctx.strokeStyle = 'rgba(163, 89, 24, 0.44)';
+                    ctx.lineWidth = 1.2;
+                    ctx.beginPath();
+                    ctx.arc(food.x, food.y, food.r * 0.72, Math.PI * 0.12, Math.PI * 1.12);
+                    ctx.stroke();
+                } else {
+                    ctx.fillStyle = 'rgba(69, 33, 10, 0.14)';
+                    ctx.beginPath();
+                    ctx.arc(food.x, food.y + food.r * 0.35, food.r * 1.5, 0, TAU);
+                    ctx.fill();
+
+                    ctx.fillStyle = '#6b3c18';
+                    ctx.beginPath();
+                    ctx.arc(food.x, food.y, food.r * 0.9, 0, TAU);
+                    ctx.fill();
+
+                    ctx.fillStyle = '#7d4a1f';
+                    ctx.beginPath();
+                    ctx.arc(food.x - food.r * 0.42, food.y + food.r * 0.2, food.r * 0.6, 0, TAU);
+                    ctx.arc(food.x + food.r * 0.42, food.y + food.r * 0.18, food.r * 0.56, 0, TAU);
+                    ctx.arc(food.x, food.y - food.r * 0.24, food.r * 0.64, 0, TAU);
+                    ctx.fill();
+                }
+            }
+        }
+
+        function drawFishEntity(entity, options = {}) {
+            const player = Boolean(options.player);
+            const dangerous = Boolean(options.dangerous);
+            const edible = Boolean(options.edible);
+            const r = player ? entity.radius : entity.r;
+            const facing = player ? entity.facing : entity.dir;
+            const tilt = clamp((player ? entity.vy : entity.vy + Math.sin(entity.phase) * 16) * 0.0035, -0.2, 0.2);
+
+            ctx.save();
+            ctx.translate(entity.x, entity.y);
+            ctx.scale(facing, 1);
+            ctx.rotate(tilt);
+
+            if (player && entity.trail > 0.02) {
+                ctx.fillStyle = 'rgba(255, 200, 80, 0.14)';
+                ctx.beginPath();
+                ctx.ellipse(-r * 1.15, 0, r * 0.92, r * 0.44, 0, 0, TAU);
+                ctx.fill();
+            }
+
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.18)';
+            ctx.beginPath();
+            ctx.ellipse(0, r * 0.92, r * 1.05, r * 0.32, 0, 0, TAU);
+            ctx.fill();
+
+            if (dangerous) {
+                ctx.fillStyle = 'rgba(255, 110, 110, 0.12)';
+                ctx.beginPath();
+                ctx.ellipse(0, 0, r * 1.8, r * 1.1, 0, 0, TAU);
+                ctx.fill();
+            } else if (edible) {
+                ctx.fillStyle = 'rgba(144, 255, 188, 0.08)';
+                ctx.beginPath();
+                ctx.ellipse(0, 0, r * 1.6, r * 0.96, 0, 0, TAU);
+                ctx.fill();
+            }
+
+            ctx.fillStyle = player ? '#ff9a4c' : hsl(entity.accentHue, 80, dangerous ? 66 : 62);
+            ctx.beginPath();
+            ctx.moveTo(-r * 0.9, 0);
+            ctx.lineTo(-r * 1.7, -r * 0.56);
+            ctx.lineTo(-r * 1.42, 0);
+            ctx.lineTo(-r * 1.7, r * 0.56);
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.beginPath();
+            ctx.moveTo(-r * 0.08, -r * 0.68);
+            ctx.lineTo(-r * 0.38, -r * 1.02);
+            ctx.lineTo(r * 0.18, -r * 0.78);
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.beginPath();
+            ctx.moveTo(-r * 0.08, r * 0.1);
+            ctx.lineTo(r * 0.36, r * 0.68);
+            ctx.lineTo(-r * 0.28, r * 0.54);
+            ctx.closePath();
+            ctx.fill();
+
+            const bodyGrad = ctx.createLinearGradient(-r * 1.1, -r * 0.2, r * 1.2, r * 0.4);
+            if (player) {
+                bodyGrad.addColorStop(0, '#ff9447');
+                bodyGrad.addColorStop(0.45, '#ffd468');
+                bodyGrad.addColorStop(1, '#ff7b59');
+            } else {
+                bodyGrad.addColorStop(0, hsl(entity.hue - 16, 70, dangerous ? 44 : 48));
+                bodyGrad.addColorStop(0.45, hsl(entity.hue, 74, dangerous ? 54 : 58));
+                bodyGrad.addColorStop(1, hsl(entity.hue + 14, 78, dangerous ? 62 : 66));
+            }
+
+            ctx.fillStyle = bodyGrad;
+            ctx.beginPath();
+            ctx.ellipse(0, 0, r * 1.22, r * 0.82, 0, 0, TAU);
+            ctx.fill();
+
+            ctx.fillStyle = player ? 'rgba(255,255,255,0.24)' : hsla(entity.hue + 18, 86, 88, 0.18);
+            ctx.beginPath();
+            ctx.ellipse(r * 0.1, -r * 0.18, r * 0.76, r * 0.26, -0.22, 0, TAU);
+            ctx.fill();
+
+            ctx.fillStyle = player ? 'rgba(255,255,255,0.24)' : hsla(entity.hue - 22, 78, 42, 0.32);
+            ctx.beginPath();
+            ctx.ellipse(-r * 0.12, r * 0.2, r * 0.84, r * 0.18, 0.08, 0, TAU);
+            ctx.fill();
+
+            if (dangerous) {
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.72)';
+                for (let tooth = 0; tooth < 4; tooth += 1) {
+                    const px = r * 0.52 - tooth * (r * 0.22);
+                    ctx.beginPath();
+                    ctx.moveTo(px, r * 0.02);
+                    ctx.lineTo(px - r * 0.08, r * 0.24);
+                    ctx.lineTo(px + r * 0.08, r * 0.24);
+                    ctx.closePath();
+                    ctx.fill();
+                }
+            }
+
+            ctx.fillStyle = '#fff';
+            ctx.beginPath();
+            ctx.arc(r * 0.56, -r * 0.12, r * 0.14, 0, TAU);
+            ctx.fill();
+
+            ctx.fillStyle = dangerous ? '#320000' : '#101923';
+            ctx.beginPath();
+            ctx.arc(r * 0.6, -r * 0.12, r * 0.07, 0, TAU);
+            ctx.fill();
+
+            ctx.strokeStyle = player ? 'rgba(109, 52, 0, 0.45)' : 'rgba(14, 24, 36, 0.36)';
+            ctx.lineWidth = Math.max(1.1, r * 0.06);
+            ctx.beginPath();
+            ctx.arc(r * 0.76, r * 0.05, r * 0.18, -0.2, 0.56);
+            ctx.stroke();
+
+            ctx.restore();
+        }
+
+        function drawParticles() {
+            for (const particle of state.particles) {
+                const alpha = clamp(particle.life / particle.maxLife, 0, 1) * particle.alpha;
+                ctx.fillStyle = hsla(particle.hue, 86, 68, alpha);
+                ctx.beginPath();
+                ctx.arc(particle.x, particle.y, particle.r * alpha + 0.6, 0, TAU);
+                ctx.fill();
+            }
+        }
+
+        function drawDangerOverlay() {
+            if (state.dangerPulse <= 0) return;
+
+            const alpha = state.dangerPulse * 0.18;
+            const edge = ctx.createRadialGradient(
+                state.width * 0.5,
+                state.height * 0.5,
+                state.width * 0.24,
+                state.width * 0.5,
+                state.height * 0.5,
+                state.width * 0.7
+            );
+            edge.addColorStop(0, `rgba(255, 0, 0, 0)`);
+            edge.addColorStop(1, `rgba(255, 72, 72, ${alpha})`);
+            ctx.fillStyle = edge;
+            ctx.fillRect(0, 0, state.width, state.height);
+        }
+
+        function drawEndOverlay() {
+            if (!state.ended) return;
+
+            ctx.fillStyle = 'rgba(5, 12, 22, 0.38)';
+            ctx.fillRect(0, 0, state.width, state.height);
+
+            const title = state.endReason === 'goal'
+                ? '목표 달성!'
+                : state.endReason === 'timeout'
+                    ? '시간 종료'
+                    : '패배';
+            const subtitle = state.endReason === 'goal'
+                ? `최종 점수 ${Math.round(state.score)}점`
+                : `큰 물고기 충돌 시 즉시 패배 · 현재 ${Math.round(state.score)}점`;
+
+            ctx.textAlign = 'center';
+            ctx.fillStyle = '#ffffff';
+            ctx.font = '900 34px -apple-system, BlinkMacSystemFont, sans-serif';
+            ctx.fillText(title, state.width * 0.5, state.height * 0.48);
+
+            ctx.fillStyle = 'rgba(228, 243, 255, 0.78)';
+            ctx.font = '700 16px -apple-system, BlinkMacSystemFont, sans-serif';
+            ctx.fillText(subtitle, state.width * 0.5, state.height * 0.53);
+        }
+
+        function renderGame() {
+            ctx.clearRect(0, 0, state.width, state.height);
+            drawBackground();
+
+            if (!state.player) {
+                drawBubbles();
+                drawSeaFloor();
+                return;
+            }
+
+            const shakeX = state.shake > 0 ? rand(-state.shake, state.shake) : 0;
+            const shakeY = state.shake > 0 ? rand(-state.shake * 0.6, state.shake * 0.6) : 0;
+
+            ctx.save();
+            ctx.translate(shakeX, shakeY);
+
+            drawBubbles();
+            drawFoods();
+
+            for (const fish of state.fishes) {
+                drawFishEntity(fish, {
+                    edible: isFishEdible(fish.r),
+                    dangerous: isFishDangerous(fish.r)
+                });
+            }
+
+            drawFishEntity(state.player, { player: true });
+            drawSeaFloor();
+            drawParticles();
+
+            ctx.restore();
+            drawDangerOverlay();
+            drawEndOverlay();
+        }
+
+        function updateGame(dt) {
+            state.elapsed += dt;
+            state.ambientPhase += dt;
+            state.timeLeft = Math.max(0, state.diff.timeLimit - state.elapsed);
+            state.shake = Math.max(0, state.shake - dt * 22);
+            state.dangerPulse = Math.max(0, state.dangerPulse - dt * 1.5);
+            state.saveCooldown = Math.max(0, state.saveCooldown - dt);
+
+            if (state.toastTimer > 0) {
+                state.toastTimer -= dt;
+                if (state.toastTimer <= 0) {
+                    hideToast();
+                }
+            }
+
+            if (state.hintTimer > 0) {
+                state.hintTimer -= dt;
+                if (state.hintTimer <= 0) {
+                    hideTip();
+                }
+            }
+
+            if (state.comboTimer > 0) {
+                state.comboTimer -= dt;
+                if (state.comboTimer <= 0) {
+                    state.combo = 0;
+                }
+            }
+
+            updateBubbles(dt);
+            updateParticles(dt);
+
+            if (state.ended) {
+                updatePlayer(dt, true);
+                updateHud();
+
+                state.completeTimer -= dt;
+                if (state.completeTimer <= 0) {
+                    completeGame();
+                }
+                return;
+            }
+
+            if (state.timeLeft <= 0) {
+                finishGame('timeout');
+                return;
+            }
+
+            state.foodSpawnTimer -= dt;
+            while (state.foodSpawnTimer <= 0) {
+                spawnFood();
+                state.foodSpawnTimer += state.diff.foodSpawnInterval * rand(0.85, 1.25);
+            }
+
+            state.fishSpawnTimer -= dt;
+            while (state.fishSpawnTimer <= 0) {
+                spawnFish();
+                state.fishSpawnTimer += state.diff.fishSpawnInterval * rand(0.85, 1.2);
+            }
+
+            updatePlayer(dt, false);
+            updateFoods(dt);
+            updateFishes(dt);
+            updateHud();
+        }
+
+        function gameLoop(timestamp) {
+            if (!state.running) return;
+
+            if (!state.lastTs) {
+                state.lastTs = timestamp;
+            }
+
+            const dt = Math.min(0.032, Math.max(0.001, (timestamp - state.lastTs) / 1000));
+            state.lastTs = timestamp;
+
+            updateGame(dt);
+            renderGame();
+
+            if (state.running) {
+                state.raf = requestAnimationFrame(gameLoop);
+            }
+        }
+
+        function startGame() {
+            cancelAnimationFrame(state.raf);
+
+            state.diff = getDifficulty(GameBridge.stage);
+            ui.hud.classList.remove('hidden');
+            updatePlayfieldBounds();
+            state.running = true;
+            state.ended = false;
+            state.resultSent = false;
+            state.lastTs = 0;
+            state.elapsed = 0;
+            state.score = 0;
+            state.scoreReported = -1;
+            state.timeLeft = state.diff.timeLimit;
+            state.combo = 0;
+            state.comboTimer = 0;
+            state.foods = [];
+            state.fishes = [];
+            state.particles = [];
+            state.player = createPlayer();
+            state.foodSpawnTimer = 0.3;
+            state.fishSpawnTimer = 1.05;
+            state.toastTimer = 0;
+            state.hintTimer = 6.5;
+            state.shake = 0;
+            state.dangerPulse = 0;
+            state.saveCooldown = 0;
+            state.totalEaten = 0;
+            state.recordBroken = false;
+            state.endReason = '';
+            state.completeTimer = 0;
+            state.baseBestSize = Number(GameBridge.customData.bestSizeLevel || 1);
+            state.baseTotalFoodEaten = Number(GameBridge.customData.totalFoodEaten || 0);
+            state.baseBestScore = Math.max(Number(GameBridge.customData.bestScore || 0), Number(GameBridge.highScore || 0));
+            state.touch.x = state.player.x + 30;
+            state.touch.y = state.player.y;
+
+            ui.tip.classList.remove('hidden');
+            ui.tip.textContent = '경단 사료는 속도 +1, 똥먹이는 속도 -1. 작은 물고기만 먹을 수 있고 큰 물고기와 닿으면 바로 패배합니다.';
+
+            for (let index = 0; index < state.diff.openingFoods; index += 1) {
+                spawnFood(true);
+            }
+
+            for (let index = 0; index < state.diff.openingFishes; index += 1) {
+                spawnFish(index < state.diff.openingSmallFishes);
+            }
+
+            reportScore();
+            updateHud();
+            renderGame();
+            state.raf = requestAnimationFrame(gameLoop);
+        }
+
+        function pointerPosition(event) {
+            const rect = canvas.getBoundingClientRect();
+            return {
+                x: (event.clientX - rect.left) * (state.width / rect.width),
+                y: (event.clientY - rect.top) * (state.height / rect.height)
+            };
+        }
+
+        function onPointerDown(event) {
+            if (!state.running || state.ended) return;
+            const pos = pointerPosition(event);
+
+            state.touch.active = true;
+            state.touch.pointerId = event.pointerId;
+            state.touch.x = pos.x;
+            state.touch.y = pos.y;
+            hideTip();
+
+            if (canvas.setPointerCapture) {
+                try {
+                    canvas.setPointerCapture(event.pointerId);
+                } catch (error) {
+                    // no-op
+                }
+            }
+        }
+
+        function onPointerMove(event) {
+            if (!state.touch.active) return;
+            if (state.touch.pointerId !== null && event.pointerId !== state.touch.pointerId) return;
+
+            const pos = pointerPosition(event);
+            state.touch.x = pos.x;
+            state.touch.y = pos.y;
+        }
+
+        function onPointerUp(event) {
+            if (state.touch.pointerId !== null && event.pointerId !== state.touch.pointerId) return;
+
+            state.touch.active = false;
+            state.touch.pointerId = null;
+
+            if (canvas.releasePointerCapture) {
+                try {
+                    canvas.releasePointerCapture(event.pointerId);
+                } catch (error) {
+                    // no-op
+                }
+            }
+        }
+
+        function onKeyChange(event, isDown) {
+            const key = event.key.toLowerCase();
+            if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'w', 'a', 's', 'd', ' '].includes(key)) {
+                event.preventDefault();
+            }
+
+            if (key === 'arrowup' || key === 'w') state.keys.up = isDown;
+            if (key === 'arrowdown' || key === 's') state.keys.down = isDown;
+            if (key === 'arrowleft' || key === 'a') state.keys.left = isDown;
+            if (key === 'arrowright' || key === 'd') state.keys.right = isDown;
+
+            if (isDown) {
+                hideTip();
+            }
+        }
+
+        canvas.addEventListener('pointerdown', onPointerDown);
+        canvas.addEventListener('pointermove', onPointerMove);
+        canvas.addEventListener('pointerup', onPointerUp);
+        canvas.addEventListener('pointercancel', onPointerUp);
+
+        window.addEventListener('keydown', (event) => onKeyChange(event, true), { passive: false });
+        window.addEventListener('keyup', (event) => onKeyChange(event, false), { passive: false });
+        window.addEventListener('resize', resizeCanvas, { passive: true });
+        document.body.addEventListener('contextmenu', (event) => event.preventDefault());
+
+        document.getElementById('t-start').addEventListener('click', () => {
+            GameBridge.onInit({
+                stage: Number(document.getElementById('t-stage').value) || 1,
+                highScore: Number(document.getElementById('t-score').value) || 0,
+                customData: document.getElementById('t-custom').value || '{}'
+            });
+        });
+
+        const isTestMode = !window.AndroidBridge && !window.webkit?.messageHandlers?.iOSBridge;
+
+        if (!isTestMode) {
+            ui.testPanel.classList.add('hidden');
+            setTimeout(() => {
+                if (!GameBridge.initialized) {
+                    console.warn('[GameBridge] 앱 호출 없이 자동 초기화');
+                    GameBridge.onInit({ stage: 1, highScore: 0, customData: '{}' });
+                }
+            }, 300);
+        }
+
+        resizeCanvas();
+        buildSeaweed();
+        seedBubbles();
+        renderGame();
+    </script>
+</body>
+</html>
