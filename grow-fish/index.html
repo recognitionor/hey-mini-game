@@ -14,6 +14,9 @@
             --accent-2: #ffd86f;
             --danger: #ff8a8a;
             --success: #90ffbc;
+            --viewport-width: 100vw;
+            --viewport-height: 100vh;
+            --hud-side-width: 248px;
         }
 
         * {
@@ -41,8 +44,25 @@
             font: inherit;
         }
 
-        #app {
+        #app-shell {
             position: fixed;
+            left: 50%;
+            top: 50%;
+            width: var(--viewport-width);
+            height: var(--viewport-height);
+            transform: translate(-50%, -50%);
+            transform-origin: center center;
+            overflow: hidden;
+        }
+
+        body.portrait-lock #app-shell {
+            width: var(--viewport-height);
+            height: var(--viewport-width);
+            transform: translate(-50%, -50%) rotate(90deg);
+        }
+
+        #app {
+            position: absolute;
             inset: 0;
             overflow: hidden;
             background:
@@ -60,31 +80,37 @@
 
         #hud {
             position: absolute;
-            inset: 0 0 auto 0;
+            top: 0;
+            right: 0;
+            bottom: 0;
             z-index: 5;
             pointer-events: none;
             padding:
                 calc(env(safe-area-inset-top, 0px) + 10px)
-                12px
-                0
-                12px;
+                calc(env(safe-area-inset-right, 0px) + 10px)
+                calc(env(safe-area-inset-bottom, 0px) + 10px)
+                8px;
+            width: var(--hud-side-width);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
         }
 
         .hud-top {
             display: flex;
+            flex-direction: column;
             align-items: stretch;
-            justify-content: space-between;
-            gap: 12px;
+            justify-content: flex-start;
+            gap: 8px;
         }
 
         .score-card {
-            flex: 1;
             min-width: 0;
             padding: 10px 12px;
-            border-radius: 18px;
+            border-radius: 16px;
             background: linear-gradient(180deg, rgba(10, 29, 50, 0.84), rgba(8, 20, 36, 0.78));
             border: 1px solid var(--panel-border);
-            box-shadow: 0 12px 22px rgba(0, 0, 0, 0.18);
+            box-shadow: 0 10px 18px rgba(0, 0, 0, 0.18);
             backdrop-filter: blur(10px);
         }
 
@@ -97,7 +123,7 @@
         }
 
         #score-value {
-            font-size: 32px;
+            font-size: 28px;
             line-height: 0.9;
             font-weight: 900;
             letter-spacing: -0.04em;
@@ -105,18 +131,17 @@
         }
 
         .pill-stack {
-            width: min(44vw, 170px);
             display: grid;
             grid-template-columns: repeat(2, minmax(0, 1fr));
             gap: 8px;
         }
 
         .pill {
-            padding: 8px 10px;
-            border-radius: 16px;
+            padding: 7px 8px;
+            border-radius: 14px;
             background: var(--panel-bg);
             border: 1px solid var(--panel-border);
-            box-shadow: 0 10px 18px rgba(0, 0, 0, 0.14);
+            box-shadow: 0 8px 14px rgba(0, 0, 0, 0.14);
             backdrop-filter: blur(10px);
             text-align: center;
         }
@@ -133,31 +158,30 @@
 
         .pill strong {
             display: block;
-            font-size: 16px;
+            font-size: 15px;
             font-weight: 800;
         }
 
         .hud-grid {
             display: grid;
-            grid-template-columns: repeat(4, minmax(0, 1fr));
+            grid-template-columns: repeat(2, minmax(0, 1fr));
             gap: 8px;
-            margin-top: 8px;
         }
 
         .stat-card {
             min-width: 0;
             padding: 8px 6px;
-            border-radius: 14px;
+            border-radius: 13px;
             background: rgba(7, 20, 36, 0.64);
             border: 1px solid rgba(255, 255, 255, 0.1);
             text-align: center;
-            box-shadow: 0 10px 18px rgba(0, 0, 0, 0.12);
+            box-shadow: 0 8px 14px rgba(0, 0, 0, 0.12);
             backdrop-filter: blur(10px);
         }
 
         .stat-card strong {
             display: block;
-            font-size: 15px;
+            font-size: 14px;
             font-weight: 800;
             white-space: nowrap;
             overflow: hidden;
@@ -165,12 +189,11 @@
         }
 
         .meter-block {
-            margin-top: 6px;
-            padding: 7px 10px 9px;
-            border-radius: 14px;
+            padding: 8px 10px 9px;
+            border-radius: 13px;
             background: rgba(7, 20, 36, 0.64);
             border: 1px solid rgba(255, 255, 255, 0.08);
-            box-shadow: 0 10px 18px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 8px 14px rgba(0, 0, 0, 0.1);
             backdrop-filter: blur(10px);
         }
 
@@ -215,7 +238,7 @@
 
         #toast {
             position: absolute;
-            left: 50%;
+            left: calc((100% - var(--hud-side-width)) * 0.5);
             top: 45%;
             transform: translate(-50%, -50%);
             z-index: 6;
@@ -239,12 +262,12 @@
 
         #tip {
             position: absolute;
-            left: 50%;
+            left: calc((100% - var(--hud-side-width)) * 0.5);
             bottom:
                 calc(env(safe-area-inset-bottom, 0px) + 18px);
             transform: translateX(-50%);
             z-index: 5;
-            width: min(92vw, 360px);
+            width: min(calc(100% - var(--hud-side-width) - 48px), 360px);
             padding: 14px 16px;
             border-radius: 22px;
             background: rgba(6, 18, 34, 0.76);
@@ -261,7 +284,7 @@
 
         #joystick {
             position: absolute;
-            left: 14px;
+            left: calc(env(safe-area-inset-left, 0px) + 14px);
             bottom: calc(env(safe-area-inset-bottom, 0px) + 18px);
             z-index: 7;
             width: 126px;
@@ -271,6 +294,10 @@
             justify-content: center;
             pointer-events: auto;
             touch-action: none;
+            -webkit-user-select: none;
+            user-select: none;
+            -webkit-touch-callout: none;
+            -webkit-tap-highlight-color: transparent;
         }
 
         #joystick-base {
@@ -284,6 +311,7 @@
                 rgba(6, 18, 34, 0.52);
             box-shadow: inset 0 0 22px rgba(124, 228, 255, 0.08), 0 16px 28px rgba(0, 0, 0, 0.18);
             backdrop-filter: blur(10px);
+            touch-action: none;
         }
 
         #joystick-base::after {
@@ -314,6 +342,7 @@
                 linear-gradient(180deg, rgba(124, 228, 255, 0.34), rgba(75, 153, 255, 0.22));
             box-shadow: 0 8px 18px rgba(0, 0, 0, 0.2);
             transition: transform 0.04s linear, box-shadow 0.12s ease;
+            touch-action: none;
         }
 
         #joystick.active #joystick-knob {
@@ -326,7 +355,7 @@
             top: 50%;
             transform: translate(-50%, -50%);
             z-index: 10;
-            width: min(88vw, 340px);
+            width: min(72vh, 340px);
             padding: 28px 24px;
             border-radius: 28px;
             background: rgba(6, 16, 30, 0.96);
@@ -397,23 +426,32 @@
             display: none !important;
         }
 
-        @media (max-width: 430px) {
-            .hud-grid {
-                grid-template-columns: repeat(2, minmax(0, 1fr));
-            }
-
-            .pill-stack {
-                width: min(48vw, 150px);
+        @media (max-height: 460px) {
+            #hud {
+                gap: 6px;
             }
 
             #score-value {
-                font-size: 28px;
+                font-size: 24px;
+            }
+
+            .pill,
+            .stat-card,
+            .meter-block {
+                padding-top: 6px;
+                padding-bottom: 6px;
+            }
+
+            .pill strong,
+            .stat-card strong {
+                font-size: 13px;
             }
         }
     </style>
 </head>
 <body>
-    <div id="app">
+    <div id="app-shell">
+        <div id="app">
         <canvas id="game-canvas"></canvas>
 
         <div id="hud" class="hidden">
@@ -499,6 +537,7 @@
                 <textarea id="t-custom">{}</textarea>
             </label>
             <button id="t-start">게임 시작</button>
+        </div>
         </div>
     </div>
 
@@ -626,6 +665,8 @@
         const ctx = canvas.getContext('2d');
 
         const ui = {
+            appShell: document.getElementById('app-shell'),
+            app: document.getElementById('app'),
             hud: document.getElementById('hud'),
             score: document.getElementById('score-value'),
             stage: document.getElementById('stage-value'),
@@ -685,6 +726,11 @@
             recordBroken: false,
             endReason: '',
             completeTimer: 0,
+            viewportWidth: window.innerWidth,
+            viewportHeight: window.innerHeight,
+            isPortraitViewport: window.innerHeight > window.innerWidth,
+            playLeft: 16,
+            playRight: window.innerWidth - 16,
             touch: {
                 active: false,
                 pointerId: null,
@@ -694,6 +740,7 @@
             joystick: {
                 active: false,
                 pointerId: null,
+                touchId: null,
                 x: 0,
                 y: 0,
                 intensity: 0,
@@ -706,6 +753,25 @@
                 right: false
             }
         };
+
+        function getViewportMetrics() {
+            const viewport = window.visualViewport;
+            const width = viewport ? viewport.width : window.innerWidth;
+            const height = viewport ? viewport.height : window.innerHeight;
+
+            return {
+                width: Math.max(1, Math.round(width)),
+                height: Math.max(1, Math.round(height))
+            };
+        }
+
+        function tryLockLandscape() {
+            if (!screen.orientation?.lock) return;
+
+            screen.orientation.lock('landscape').catch(() => {
+                // iPhone/WKWebView usually ignores this. Layout fallback handles the rest.
+            });
+        }
 
         function getDifficulty(stage) {
             const level = stage - 1;
@@ -742,18 +808,30 @@
         }
 
         function updatePlayfieldBounds() {
-            const fallbackTop = 108;
-            const hudBottom = ui.hud.classList.contains('hidden')
-                ? fallbackTop
-                : ui.hud.getBoundingClientRect().bottom;
+            const hudWidth = ui.hud.classList.contains('hidden')
+                ? 0
+                : clamp(Math.round(state.width * 0.255), 216, 312);
 
-            state.playTop = clamp(Math.ceil(hudBottom + 10), 104, Math.max(120, state.height * 0.42));
-            state.playBottom = state.height - 28;
+            document.documentElement.style.setProperty('--hud-side-width', `${hudWidth}px`);
+
+            state.playLeft = 16;
+            state.playRight = Math.max(state.playLeft + 260, state.width - hudWidth - 12);
+            state.playTop = 14;
+            state.playBottom = state.height - 20;
         }
 
         function resizeCanvas() {
-            state.width = window.innerWidth;
-            state.height = window.innerHeight;
+            const viewport = getViewportMetrics();
+            state.viewportWidth = viewport.width;
+            state.viewportHeight = viewport.height;
+            state.isPortraitViewport = viewport.height > viewport.width;
+
+            document.documentElement.style.setProperty('--viewport-width', `${viewport.width}px`);
+            document.documentElement.style.setProperty('--viewport-height', `${viewport.height}px`);
+            document.body.classList.toggle('portrait-lock', state.isPortraitViewport);
+
+            state.width = state.isPortraitViewport ? viewport.height : viewport.width;
+            state.height = state.isPortraitViewport ? viewport.width : viewport.height;
             state.dpr = Math.min(2, window.devicePixelRatio || 1);
 
             canvas.width = Math.floor(state.width * state.dpr);
@@ -765,7 +843,7 @@
             updatePlayfieldBounds();
 
             if (state.player) {
-                state.player.x = clamp(state.player.x, 24, state.width - 24);
+                state.player.x = clamp(state.player.x, state.playLeft + 24, state.playRight - 24);
                 state.player.y = clamp(state.player.y, state.playTop + 18, state.playBottom);
             }
 
@@ -810,9 +888,10 @@
         }
 
         function createPlayer() {
+            const availableWidth = Math.max(280, state.playRight - state.playLeft);
             const availableHeight = Math.max(180, state.playBottom - state.playTop);
             return {
-                x: state.width * 0.32,
+                x: state.playLeft + availableWidth * 0.34,
                 y: state.playTop + availableHeight * 0.48,
                 vx: 0,
                 vy: 0,
@@ -873,6 +952,7 @@
         function resetJoystick() {
             state.joystick.active = false;
             state.joystick.pointerId = null;
+            state.joystick.touchId = null;
             state.joystick.x = 0;
             state.joystick.y = 0;
             state.joystick.intensity = 0;
@@ -880,12 +960,12 @@
             ui.joystickKnob.style.transform = 'translate(0px, 0px)';
         }
 
-        function updateJoystickFromEvent(event) {
+        function updateJoystickFromClient(clientX, clientY) {
             const rect = ui.joystickBase.getBoundingClientRect();
             const centerX = rect.left + rect.width / 2;
             const centerY = rect.top + rect.height / 2;
-            let dx = event.clientX - centerX;
-            let dy = event.clientY - centerY;
+            let dx = clientX - centerX;
+            let dy = clientY - centerY;
             const distance = Math.hypot(dx, dy);
             const limit = state.joystick.maxDistance;
 
@@ -901,6 +981,19 @@
 
             ui.joystick.classList.toggle('active', state.joystick.intensity > 0.02);
             ui.joystickKnob.style.transform = `translate(${dx}px, ${dy}px)`;
+        }
+
+        function updateJoystickFromEvent(event) {
+            updateJoystickFromClient(event.clientX, event.clientY);
+        }
+
+        function findTouchById(touchList, id) {
+            for (let index = 0; index < touchList.length; index += 1) {
+                if (touchList[index].identifier === id) {
+                    return touchList[index];
+                }
+            }
+            return null;
         }
 
         function updateHud() {
@@ -1005,9 +1098,11 @@
             const poop = Math.random() < 0.22;
             const minY = state.playTop + 18;
             const maxY = Math.max(minY + 30, state.playBottom - 36);
+            const minX = state.playLeft + 20;
+            const maxX = Math.max(minX + 30, state.playRight - 20);
 
             state.foods.push({
-                x: rand(20, state.width - 20),
+                x: rand(minX, maxX),
                 y: rand(minY, maxY),
                 r: poop ? rand(4.6, 6.2) : rand(6.8, 8.8),
                 kind: poop ? 'poop' : 'dumpling',
@@ -1042,7 +1137,7 @@
             radius = clamp(radius, 14, 84);
 
             state.fishes.push({
-                x: spawnFromLeft ? -radius - 20 : state.width + radius + 20,
+                x: spawnFromLeft ? state.playLeft - radius - 20 : state.playRight + radius + 20,
                 y: rand(minY, maxY),
                 r: radius,
                 dir: spawnFromLeft ? 1 : -1,
@@ -1200,8 +1295,8 @@
             player.x += player.vx * dt;
             player.y += player.vy * dt;
 
-            const minX = player.radius + 12;
-            const maxX = state.width - player.radius - 12;
+            const minX = state.playLeft + player.radius + 12;
+            const maxX = state.playRight - player.radius - 12;
             const minY = state.playTop + player.radius * 0.25;
             const maxY = state.playBottom - player.radius * 0.35;
 
@@ -1237,7 +1332,7 @@
                 food.x += food.vx * dt + Math.sin(food.phase) * food.drift * dt;
                 food.y += food.vy * dt + Math.cos(food.phase * 0.7) * 8 * dt;
 
-                if (food.x < 10 || food.x > state.width - 10) {
+                if (food.x < state.playLeft + 10 || food.x > state.playRight - 10) {
                     food.vx *= -1;
                 }
 
@@ -1305,10 +1400,10 @@
                 }
 
                 if (
-                    fish.x < -150 ||
-                    fish.x > state.width + 150 ||
+                    fish.x < state.playLeft - 150 ||
+                    fish.x > state.playRight + 150 ||
                     fish.y < state.playTop - 44 ||
-                    fish.y > state.height + 40
+                    fish.y > state.playBottom + 40
                 ) {
                     state.fishes.splice(index, 1);
                 }
@@ -1698,11 +1793,12 @@
             ctx.textAlign = 'center';
             ctx.fillStyle = '#ffffff';
             ctx.font = '900 34px -apple-system, BlinkMacSystemFont, sans-serif';
-            ctx.fillText(title, state.width * 0.5, state.height * 0.48);
+            const centerX = (state.playLeft + state.playRight) * 0.5;
+            ctx.fillText(title, centerX, state.height * 0.48);
 
             ctx.fillStyle = 'rgba(228, 243, 255, 0.78)';
             ctx.font = '700 16px -apple-system, BlinkMacSystemFont, sans-serif';
-            ctx.fillText(subtitle, state.width * 0.5, state.height * 0.53);
+            ctx.fillText(subtitle, centerX, state.height * 0.53);
         }
 
         function renderGame() {
@@ -1826,6 +1922,7 @@
 
         function startGame() {
             cancelAnimationFrame(state.raf);
+            tryLockLandscape();
 
             state.diff = getDifficulty(GameBridge.stage);
             ui.hud.classList.remove('hidden');
@@ -1936,8 +2033,11 @@
         }
 
         function onJoystickDown(event) {
+            if (event.pointerType === 'touch') return;
             if (!state.running || state.ended) return;
+            if (state.joystick.pointerId !== null) return;
             event.preventDefault();
+            tryLockLandscape();
             hideTip();
 
             state.joystick.active = true;
@@ -1953,7 +2053,41 @@
             }
         }
 
+        function onJoystickTouchStart(event) {
+            if (!state.running || state.ended) return;
+            if (state.joystick.touchId !== null) return;
+            const touch = event.changedTouches[0];
+            if (!touch) return;
+
+            event.preventDefault();
+            tryLockLandscape();
+            hideTip();
+
+            state.joystick.active = true;
+            state.joystick.touchId = touch.identifier;
+            updateJoystickFromClient(touch.clientX, touch.clientY);
+        }
+
+        function onJoystickTouchMove(event) {
+            if (!state.joystick.active || state.joystick.touchId === null) return;
+            const touch = findTouchById(event.touches, state.joystick.touchId) || findTouchById(event.changedTouches, state.joystick.touchId);
+            if (!touch) return;
+
+            event.preventDefault();
+            updateJoystickFromClient(touch.clientX, touch.clientY);
+        }
+
+        function onJoystickTouchEnd(event) {
+            if (state.joystick.touchId === null) return;
+            const touch = findTouchById(event.changedTouches, state.joystick.touchId);
+            if (!touch && event.type !== 'touchcancel') return;
+
+            event.preventDefault();
+            resetJoystick();
+        }
+
         function onJoystickMove(event) {
+            if (event.pointerType === 'touch') return;
             if (!state.joystick.active) return;
             if (state.joystick.pointerId !== null && event.pointerId !== state.joystick.pointerId) return;
             event.preventDefault();
@@ -1961,6 +2095,8 @@
         }
 
         function onJoystickUp(event) {
+            if (event.pointerType === 'touch') return;
+            if (state.joystick.pointerId === null) return;
             if (state.joystick.pointerId !== null && event.pointerId !== state.joystick.pointerId) return;
             event.preventDefault();
             resetJoystick();
@@ -1994,14 +2130,21 @@
         canvas.addEventListener('pointermove', onPointerMove);
         canvas.addEventListener('pointerup', onPointerUp);
         canvas.addEventListener('pointercancel', onPointerUp);
-        ui.joystickBase.addEventListener('pointerdown', onJoystickDown);
-        ui.joystickBase.addEventListener('pointermove', onJoystickMove);
-        ui.joystickBase.addEventListener('pointerup', onJoystickUp);
-        ui.joystickBase.addEventListener('pointercancel', onJoystickUp);
+        ui.joystick.addEventListener('pointerdown', onJoystickDown);
+        ui.joystick.addEventListener('pointermove', onJoystickMove);
+        ui.joystick.addEventListener('pointerup', onJoystickUp);
+        ui.joystick.addEventListener('pointercancel', onJoystickUp);
+        ui.joystick.addEventListener('touchstart', onJoystickTouchStart, { passive: false });
+        window.addEventListener('touchmove', onJoystickTouchMove, { passive: false });
+        window.addEventListener('touchend', onJoystickTouchEnd, { passive: false });
+        window.addEventListener('touchcancel', onJoystickTouchEnd, { passive: false });
 
         window.addEventListener('keydown', (event) => onKeyChange(event, true), { passive: false });
         window.addEventListener('keyup', (event) => onKeyChange(event, false), { passive: false });
+        window.addEventListener('pointerup', onJoystickUp);
         window.addEventListener('resize', resizeCanvas, { passive: true });
+        window.addEventListener('orientationchange', resizeCanvas, { passive: true });
+        window.visualViewport?.addEventListener('resize', resizeCanvas, { passive: true });
         document.body.addEventListener('contextmenu', (event) => event.preventDefault());
 
         document.getElementById('t-start').addEventListener('click', () => {
